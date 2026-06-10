@@ -216,13 +216,14 @@ func (c *Client) Commands() <-chan IncomingCommand {
 func (c *Client) runReceiveLoop(ctx context.Context) {
 	defer close(c.commandCh)
 	for {
-		env, err := c.stream.Recv()
+		resp, err := c.stream.Recv()
 		if err != nil {
 			if err != io.EOF {
 				log.Printf("pluginapi: receive error  plugin=%s: %v", c.cfg.PluginID, err)
 			}
 			return
 		}
+		env := resp.GetEnvelope()
 		switch env.Body.(type) {
 		case *pb.SessionEnvelope_Command:
 			cmd := env.GetCommand()
@@ -627,7 +628,7 @@ func (c *Client) Close() {
 func (c *Client) sendEnvelope(env *pb.SessionEnvelope) error {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
-	return c.stream.Send(env)
+	return c.stream.Send(&pb.OpenSessionRequest{Envelope: env})
 }
 
 func (c *Client) newEnvelope() *pb.SessionEnvelope {

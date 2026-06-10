@@ -483,10 +483,11 @@ func (s *sessionSvcImpl) OpenSession(stream pb.SessionService_OpenSessionServer)
 	ctx := stream.Context()
 
 	// First envelope must be SessionMessage{type: OPEN}.
-	env, err := stream.Recv()
+	req, err := stream.Recv()
 	if err != nil {
 		return err
 	}
+	env := req.GetEnvelope()
 
 	sm := env.GetSession()
 	if sm == nil || sm.Type != pb.SessionMessageType_SESSION_MESSAGE_TYPE_OPEN {
@@ -531,7 +532,7 @@ func (s *sessionSvcImpl) OpenSession(stream pb.SessionService_OpenSessionServer)
 
 	// Main receive loop.
 	for {
-		env, err := stream.Recv()
+		req, err := stream.Recv()
 		if err != nil {
 			closeEv := SessionEvent{
 				PluginID:   sess.pluginID,
@@ -549,6 +550,7 @@ func (s *sessionSvcImpl) OpenSession(stream pb.SessionService_OpenSessionServer)
 			}
 			return err
 		}
+		env := req.GetEnvelope()
 
 		ev := SessionEvent{
 			PluginID:   sess.pluginID,
@@ -766,7 +768,7 @@ func (s *sessionSvcImpl) runCommandSender(
 				TimestampUnixMs: time.Now().UnixMilli(),
 			}
 			env.Body = &pb.SessionEnvelope_Command{Command: cmd}
-			if err := stream.Send(env); err != nil {
+			if err := stream.Send(&pb.OpenSessionResponse{Envelope: env}); err != nil {
 				log.Printf("coreapi: command send error  plugin=%s: %v", ev.PluginID, err)
 				return
 			}
@@ -776,7 +778,7 @@ func (s *sessionSvcImpl) runCommandSender(
 			if !ok {
 				return
 			}
-			if err := stream.Send(env); err != nil {
+			if err := stream.Send(&pb.OpenSessionResponse{Envelope: env}); err != nil {
 				log.Printf("coreapi: query send error  plugin=%s: %v", ev.PluginID, err)
 				return
 			}
