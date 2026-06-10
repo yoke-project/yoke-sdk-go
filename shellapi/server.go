@@ -172,8 +172,8 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 	}
 	authReq := msg.GetAuth()
 	if authReq == nil {
-		_ = stream.Send(&shellpb.ShellServerMessage{
-			Payload: &shellpb.ShellServerMessage_Error{
+		_ = stream.Send(&shellpb.OpenShellResponse{
+			Payload: &shellpb.OpenShellResponse_Error{
 				Error: &shellpb.ShellError{
 					ErrorCode:    "AUTH_REQUIRED",
 					ErrorMessage: "first message must be ShellAuthRequest",
@@ -186,8 +186,8 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 	// Stub auth: accept any non-empty username.
 	// Real PAM authentication is performed by Core before delegating to the SDK.
 	if authReq.Username == "" {
-		_ = stream.Send(&shellpb.ShellServerMessage{
-			Payload: &shellpb.ShellServerMessage_AuthResponse{
+		_ = stream.Send(&shellpb.OpenShellResponse{
+			Payload: &shellpb.OpenShellResponse_AuthResponse{
 				AuthResponse: &shellpb.ShellAuthResponse{
 					Success:   false,
 					ErrorCode: "AUTH_FAILED",
@@ -198,8 +198,8 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 	}
 
 	sessionID := newSessionID()
-	if err := stream.Send(&shellpb.ShellServerMessage{
-		Payload: &shellpb.ShellServerMessage_AuthResponse{
+	if err := stream.Send(&shellpb.OpenShellResponse{
+		Payload: &shellpb.OpenShellResponse_AuthResponse{
 			AuthResponse: &shellpb.ShellAuthResponse{
 				Success:        true,
 				ShellSessionId: sessionID,
@@ -216,7 +216,7 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 
 	// writeCh serialises all stream.Send calls to a single goroutine, satisfying
 	// gRPC's requirement that Send is not called concurrently.
-	writeCh := make(chan *shellpb.ShellServerMessage, 64)
+	writeCh := make(chan *shellpb.OpenShellResponse, 64)
 	sendErrs := make(chan error, 1)
 	go func() {
 		for m := range writeCh {
@@ -234,7 +234,7 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 	// recvCh delivers client messages from a background goroutine so the main
 	// select can multiplex between incoming messages and event push.
 	type recvResult struct {
-		msg *shellpb.ShellClientMessage
+		msg *shellpb.OpenShellRequest
 		err error
 	}
 	recvCh := make(chan recvResult, 4)
@@ -263,8 +263,8 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 			return err
 
 		case ev := <-eventCh:
-			writeCh <- &shellpb.ShellServerMessage{
-				Payload: &shellpb.ShellServerMessage_Event{
+			writeCh <- &shellpb.OpenShellResponse{
+				Payload: &shellpb.OpenShellResponse_Event{
 					Event: &shellpb.ShellEventPush{
 						EventType:       ev.Type,
 						PluginId:        ev.PluginID,
@@ -283,20 +283,20 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 			}
 
 			switch p := r.msg.Payload.(type) {
-			case *shellpb.ShellClientMessage_Ping:
-				writeCh <- &shellpb.ShellServerMessage{
-					Payload: &shellpb.ShellServerMessage_Pong{
+			case *shellpb.OpenShellRequest_Ping:
+				writeCh <- &shellpb.OpenShellResponse{
+					Payload: &shellpb.OpenShellResponse_Pong{
 						Pong: &shellpb.ShellPongResponse{PingId: p.Ping.PingId},
 					},
 				}
 
-			case *shellpb.ShellClientMessage_Command:
+			case *shellpb.OpenShellRequest_Command:
 				cmdReq := p.Command
 				cmdText := strings.TrimSpace(cmdReq.CommandText)
 
 				if cmdText == "exit" || cmdText == "quit" {
-					writeCh <- &shellpb.ShellServerMessage{
-						Payload: &shellpb.ShellServerMessage_Complete{
+					writeCh <- &shellpb.OpenShellResponse{
+						Payload: &shellpb.OpenShellResponse_Complete{
 							Complete: &shellpb.ShellCommandComplete{
 								CommandId: cmdReq.CommandId,
 								Success:   true,
@@ -309,8 +309,8 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 				result, handleErr := handler.Handle(ctx, sessionID, cmdText)
 				if handleErr == nil {
 					line, _ := json.Marshal(result)
-					writeCh <- &shellpb.ShellServerMessage{
-						Payload: &shellpb.ShellServerMessage_Output{
+					writeCh <- &shellpb.OpenShellResponse{
+						Payload: &shellpb.OpenShellResponse_Output{
 							Output: &shellpb.ShellCommandOutput{
 								CommandId: cmdReq.CommandId,
 								Line:      string(line),
@@ -325,13 +325,13 @@ func (s *shellServiceImpl) OpenShell(stream shellpb.ShellService_OpenShellServer
 				if handleErr != nil {
 					complete.ErrorCode = handleErr.Error()
 				}
-				writeCh <- &shellpb.ShellServerMessage{
-					Payload: &shellpb.ShellServerMessage_Complete{Complete: complete},
+				writeCh <- &shellpb.OpenShellResponse{
+					Payload: &shellpb.OpenShellResponse_Complete{Complete: complete},
 				}
 
 			default:
-				writeCh <- &shellpb.ShellServerMessage{
-					Payload: &shellpb.ShellServerMessage_Error{
+				writeCh <- &shellpb.OpenShellResponse{
+					Payload: &shellpb.OpenShellResponse_Error{
 						Error: &shellpb.ShellError{
 							ErrorCode:    "UNKNOWN_MESSAGE",
 							ErrorMessage: "unrecognised message type",

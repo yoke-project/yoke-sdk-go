@@ -88,8 +88,8 @@ func Dial(ctx context.Context, socketPath string) (*Client, error) {
 // Auth sends credentials and waits for the auth response.
 // On success it starts the background message-reading goroutine.
 func (c *Client) Auth(username, password string) error {
-	if err := c.stream.Send(&shellpb.ShellClientMessage{
-		Payload: &shellpb.ShellClientMessage_Auth{
+	if err := c.stream.Send(&shellpb.OpenShellRequest{
+		Payload: &shellpb.OpenShellRequest_Auth{
 			Auth: &shellpb.ShellAuthRequest{Username: username, Password: password},
 		},
 	}); err != nil {
@@ -124,24 +124,24 @@ func (c *Client) readLoop() {
 			return
 		}
 		switch payload := msg.Payload.(type) {
-		case *shellpb.ShellServerMessage_Output:
+		case *shellpb.OpenShellResponse_Output:
 			select {
 			case c.outCh <- payload.Output.Line:
 			default:
 			}
-		case *shellpb.ShellServerMessage_Complete:
+		case *shellpb.OpenShellResponse_Complete:
 			c.doneCh <- cmdResult{success: payload.Complete.Success, errCode: payload.Complete.ErrorCode}
-		case *shellpb.ShellServerMessage_Pong:
+		case *shellpb.OpenShellResponse_Pong:
 			select {
 			case c.pongCh <- payload.Pong.PingId:
 			default:
 			}
-		case *shellpb.ShellServerMessage_Event:
+		case *shellpb.OpenShellResponse_Event:
 			ev := payload.Event
 			if fn := c.onEvent.Load(); fn != nil {
 				(*fn)(ev.EventType, ev.PluginId, ev.TimestampUnixMs, ev.PayloadJson)
 			}
-		case *shellpb.ShellServerMessage_Error:
+		case *shellpb.OpenShellResponse_Error:
 			c.doneCh <- cmdResult{sessErr: &SessionError{
 				Code:    payload.Error.ErrorCode,
 				Message: payload.Error.ErrorMessage,
@@ -153,8 +153,8 @@ func (c *Client) readLoop() {
 // Command sends a command and returns all output lines (blocks until ShellCommandComplete).
 func (c *Client) Command(ctx context.Context, commandID, commandText string) (lines []string, success bool, errCode string, err error) {
 	c.sendMu.Lock()
-	sendErr := c.stream.Send(&shellpb.ShellClientMessage{
-		Payload: &shellpb.ShellClientMessage_Command{
+	sendErr := c.stream.Send(&shellpb.OpenShellRequest{
+		Payload: &shellpb.OpenShellRequest_Command{
 			Command: &shellpb.ShellCommandRequest{
 				CommandId:   commandID,
 				CommandText: commandText,
@@ -189,8 +189,8 @@ func (c *Client) Command(ctx context.Context, commandID, commandText string) (li
 // Ping sends a keepalive ping and waits for the matching pong.
 func (c *Client) Ping(ctx context.Context, pingID string) error {
 	c.sendMu.Lock()
-	err := c.stream.Send(&shellpb.ShellClientMessage{
-		Payload: &shellpb.ShellClientMessage_Ping{
+	err := c.stream.Send(&shellpb.OpenShellRequest{
+		Payload: &shellpb.OpenShellRequest_Ping{
 			Ping: &shellpb.ShellPingRequest{PingId: pingID},
 		},
 	})

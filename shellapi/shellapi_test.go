@@ -265,8 +265,8 @@ func TestFirstMessageMustBeAuth(t *testing.T) {
 	}
 
 	// Send a command without authenticating first.
-	err = stream.Send(&shellpb.ShellClientMessage{
-		Payload: &shellpb.ShellClientMessage_Command{
+	err = stream.Send(&shellpb.OpenShellRequest{
+		Payload: &shellpb.OpenShellRequest_Command{
 			Command: &shellpb.ShellCommandRequest{CommandId: "x", CommandText: "hello"},
 		},
 	})
