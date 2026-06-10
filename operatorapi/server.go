@@ -202,7 +202,7 @@ func (s *Server) TailLogs(req *operatorpb.TailLogsRequest, stream operatorpb.Ope
 		},
 		BackfillLines: int(req.BackfillLines),
 	}, func(e LogEntry) error {
-		return stream.Send(entryToProto(e))
+		return stream.Send(&operatorpb.TailLogsResponse{Entry: entryToProto(e)})
 	})
 }
 
