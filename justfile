@@ -22,6 +22,12 @@ build:
 test:
     go test ./...
 
+# Run the integration tests: drive the plugin SDK against a real Core process.
+# Requires the sibling ../yoke-core to be built (or set YOKE_CORE_BIN); the tag
+# keeps these out of the default `test` run.
+test-integration:
+    go test -tags=integration ./...
+
 # Run static analysis
 lint:
     go vet ./...
