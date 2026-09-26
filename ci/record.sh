@@ -11,7 +11,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 results="${1:-$root/.results}"
 module=github.com/yoke-project/yoke
 
-for each in checks.txt go.json started finished; do
+for each in checks.txt started finished; do
   [[ -f "$results/$each" ]] || { echo "record: the run left no $each in $results" >&2; exit 1; }
 done
 
@@ -21,6 +21,10 @@ case "$(uname -m)" in
   aarch64 | arm64) architecture=arm64 ;;
   *) architecture="$(uname -m)" ;;
 esac
+
+# A run that tested Go code left its runner's output beside the checks'.
+go_results=()
+[[ -f "$results/go.json" ]] && go_results=(--results "$results/go.json")
 
 # The version the proxy resolves carries the commit, so a record says exactly what wrote it.
 version="$(go list -m -f '{{.Version}}' "$module@main" 2>/dev/null)" || version=main
@@ -34,5 +38,5 @@ go run "$module/cmd/yoke-verify@main" record \
   --finished "$(tr -d '[:space:]' < "$results/finished")" \
   --ran "yoke-verify=$version@${version##*-}" \
   --results "$results/checks.txt" \
-  --results "$results/go.json" \
+  ${go_results[@]+"${go_results[@]}"} \
   "$root"
