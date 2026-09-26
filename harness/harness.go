@@ -10,7 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/yoke-project/yoke-sdk-go/base"
 	"github.com/yoke-project/yoke-sdk-go/plugin"
@@ -78,8 +82,19 @@ func Serve(ctx context.Context, getenv func(string) string) int {
 			}
 		}
 	}()
+	// Asked to stop, as the Core asks a process whose Session has ended: the end is reported first, and
+	// the process leaves within the Core's window.
+	asked := make(chan os.Signal, 1)
+	signal.Notify(asked, syscall.SIGTERM)
+	defer signal.Stop(asked)
 	for {
 		select {
+		case <-asked:
+			select {
+			case <-h.ended:
+			case <-time.After(2 * time.Second):
+			}
+			return 0
 		case <-h.ended:
 			// The Session ended: the incarnation is over, and so is the process.
 			return 0
