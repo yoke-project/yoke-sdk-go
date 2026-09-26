@@ -3,7 +3,7 @@
 
 # Build this repository's codebase.
 build:
-    @echo "build: nothing to build in yoke-sdk-go yet"
+    @go build ./... && echo "build: every package builds"
 
 # Run this repository's own checks, with no sibling present.
 test:
@@ -14,7 +14,13 @@ test:
     date -u +%Y-%m-%dT%H:%M:%SZ > .results/started
     status=0
     bash checks/run.sh | tee .results/checks.txt || status=1
+    go test -json ./... > .results/go.json || status=1
+    go test ./... || status=1
+    # The verification tool comes from the module proxy, never from a sibling.
+    go run github.com/yoke-project/yoke/cmd/yoke-verify@main descriptions --repository yoke-sdk-go . > /dev/null || status=1
+    go run github.com/yoke-project/yoke/cmd/yoke-verify@main markers --repository yoke-sdk-go . > /dev/null || status=1
     date -u +%Y-%m-%dT%H:%M:%SZ > .results/finished
+    (( status == 0 )) && echo "test: every description holds its form, and every case has exactly one test"
     exit "$status"
 
 # This repository's static checks.
@@ -23,7 +29,8 @@ lint:
     set -euo pipefail
     shopt -s nullglob
     bash -n checks/run.sh checks/*/*.sh ci/*.sh
-    echo "lint: every shell script parses"
+    go vet ./...
+    echo "lint: every shell script parses and go vet is clean"
 
 # Fail, naming each file, when the tree is not formatted.
 fmt:
