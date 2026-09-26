@@ -60,6 +60,12 @@ develop floor="":
     fi
     echo "develop: just $found meets the floor {{floor}}"
 
-# Publish into this repository's ecosystem, one manifest line per publication.
+# Publish into this repository's ecosystem, one manifest line per publication: this module, at the tag
+# `vX.Y.Z` that names the commit. It runs where the tag is seen.
 release:
-    @echo "release: nothing to publish from yoke-sdk-go yet"
+    #!/usr/bin/env bash
+    # The published release verb of `yoke`, publishing this module alone: resolved at its source,
+    # since the proxy may still hold an older answer for a branch.
+    set -euo pipefail
+    version="$(cd "$(mktemp -d)" && GOPROXY=direct go list -m -f '{{{{.Version}}' github.com/yoke-project/yoke@main)"
+    go run "github.com/yoke-project/yoke/cmd/yoke-release@$version" -modules-only
