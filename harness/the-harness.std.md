@@ -82,3 +82,17 @@
 | **Precondition** | a started harness; the harness's source |
 | **Action** | send `finish`; list the packages the harness imports |
 | **Expected** | the harness exits; it imports neither the definitions nor a transport — only the library under test |
+
+## yoke-sdk-go:the-harness.07 — asked to stop, the harness reports its Session's end first, then leaves
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/90.29 · arch/90-sdks/06 §It may not hide the end of a Session · arch/35-units/04 §Ending one |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a harness whose unit was started against a plugin channel |
+| **Action** | the process receives a termination signal, and the channel then revokes the Session |
+| **Expected** | the harness reports the end of the Session and then exits zero |
+

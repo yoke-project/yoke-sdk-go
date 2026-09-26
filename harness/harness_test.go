@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -219,5 +220,30 @@ func TestFinishEndsTheHarnessWhichHoldsNoWire(t *testing.T) {
 				t.Errorf("%s imports %s", file, path)
 			}
 		}
+	}
+}
+
+// std: yoke-sdk-go:the-harness.07
+func TestAskedToStopTheHarnessReportsTheEndFirst(t *testing.T) {
+	c := &channel{}
+	s, _, done := started(t, c)
+	s.directive(t, "start", nil)
+	<-c.opened
+	syscall.Kill(os.Getpid(), syscall.SIGTERM)
+	time.Sleep(100 * time.Millisecond)
+	c.mu.Lock()
+	c.send(&pluginv1.Envelope{MessageId: "c-1", SessionId: "sid-1", Payload: &pluginv1.Envelope_Session{Session: &pluginv1.SessionMessage{
+		Kind: &pluginv1.SessionMessage_Revoked_{Revoked: &pluginv1.SessionMessage_Revoked{Cause: pluginv1.SessionMessage_Revoked_CAUSE_LIVENESS_LOST}}}}})
+	c.mu.Unlock()
+	if o := s.read(t); o["kind"] != "session-ended" {
+		t.Fatalf("after the signal the harness reported %v", o)
+	}
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Errorf("the harness exited %d", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the harness did not leave")
 	}
 }
