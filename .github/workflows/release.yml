@@ -1,0 +1,27 @@
+# A release's tag runs this repository's release verb where the tag is seen. The verb's lines are the
+# run's output the release command collects; it appends them to the manifest itself.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The verb reads which tags name this commit.
+          fetch-depth: 0
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.58.0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+      - run: just release > manifest-lines.jsonl
+      - uses: actions/upload-artifact@v7
+        with:
+          name: manifest-lines
+          path: manifest-lines.jsonl
