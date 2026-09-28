@@ -210,10 +210,11 @@ func TestTheRegistrationClaimsWhatTheManifestDeclares(t *testing.T) {
 		Streams      []struct{ ID string }
 		Commands     []struct{ ID string }
 		Queries      []struct{ ID string }
+		Occurrences  []struct{ ID string }
 		Capabilities []struct{ Name string }
 	}
 	yaml.Unmarshal(acquire().Manifest(), &m)
-	var streams, commands, queries, capabilities []string
+	var streams, commands, queries, occurrences, capabilities []string
 	for _, s := range m.Streams {
 		streams = append(streams, s.ID)
 	}
@@ -223,12 +224,16 @@ func TestTheRegistrationClaimsWhatTheManifestDeclares(t *testing.T) {
 	for _, s := range m.Queries {
 		queries = append(queries, s.ID)
 	}
+	for _, s := range m.Occurrences {
+		occurrences = append(occurrences, s.ID)
+	}
 	for _, s := range m.Capabilities {
 		capabilities = append(capabilities, s.Name)
 	}
 	d := req.Declared
-	if !slices.Equal(d.Streams, streams) || !slices.Equal(d.Commands, commands) || !slices.Equal(d.Queries, queries) || !slices.Equal(d.Capabilities, capabilities) {
-		t.Errorf("the request declares %v, and the Manifest %v %v %v %v", d, capabilities, streams, commands, queries)
+	if !slices.Equal(d.Streams, streams) || !slices.Equal(d.Commands, commands) || !slices.Equal(d.Queries, queries) ||
+		!slices.Equal(d.Occurrences, occurrences) || !slices.Equal(d.Capabilities, capabilities) || len(occurrences) == 0 {
+		t.Errorf("the request declares %v, and the Manifest %v %v %v %v %v", d, capabilities, streams, commands, queries, occurrences)
 	}
 }
 
@@ -266,12 +271,14 @@ func TestAnAcceptanceWithRestrictionsNamesWhatWasWithheld(t *testing.T) {
 		r := accept(req)
 		r.Outcome = pluginv1.RegisterResponse_OUTCOME_ACCEPTED_WITH_RESTRICTIONS
 		r.Granted = &pluginv1.Surface{Capabilities: []string{"stream.spectra.publish"}, Streams: []string{"station.spectra"}}
-		r.Withheld = &pluginv1.Surface{Capabilities: []string{"stream.preview.publish"}, Streams: []string{"station.preview"}}
+		r.Withheld = &pluginv1.Surface{Capabilities: []string{"stream.preview.publish", "event.calibration-drift.report"}, Streams: []string{"station.preview"},
+			Occurrences: []string{"calibration.drift"}}
 		return r
 	}}
 	a := start(t, c).Admission()
 	if !a.Restricted || !slices.Equal(a.Granted.Streams, []string{"station.spectra"}) || !slices.Equal(a.Withheld.Streams, []string{"station.preview"}) ||
-		!slices.Equal(a.Withheld.Capabilities, []string{"stream.preview.publish"}) {
+		!slices.Equal(a.Withheld.Capabilities, []string{"stream.preview.publish", "event.calibration-drift.report"}) ||
+		!slices.Equal(a.Withheld.Occurrences, []string{"calibration.drift"}) {
 		t.Errorf("the admission is %+v", a)
 	}
 }

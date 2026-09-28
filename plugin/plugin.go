@@ -116,13 +116,13 @@ func (d Declaration) surface() *pluginv1.Surface {
 	return s
 }
 
-// Scope is four lists: what was granted, or what was withheld.
+// Scope is five lists: what was granted, or what was withheld.
 type Scope struct {
-	Capabilities, Streams, Commands, Queries []string
+	Capabilities, Streams, Commands, Queries, Occurrences []string
 }
 
 func scopeOf(s *pluginv1.Surface) Scope {
-	return Scope{s.GetCapabilities(), s.GetStreams(), s.GetCommands(), s.GetQueries()}
+	return Scope{Capabilities: s.GetCapabilities(), Streams: s.GetStreams(), Commands: s.GetCommands(), Queries: s.GetQueries()}
 }
 
 // Admission is what the Core answered.
