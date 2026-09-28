@@ -106,7 +106,7 @@ func (d Declaration) Manifest() []byte {
 
 // surface is what the registration claims: the declaration again, from the same value.
 func (d Declaration) surface() *pluginv1.Surface {
-	s := &pluginv1.Surface{Commands: d.Commands, Queries: d.Queries}
+	s := &pluginv1.Surface{Commands: d.Commands, Queries: d.Queries, Occurrences: d.Occurrences}
 	for _, c := range d.Capabilities {
 		s.Capabilities = append(s.Capabilities, c.Name)
 	}
@@ -122,7 +122,8 @@ type Scope struct {
 }
 
 func scopeOf(s *pluginv1.Surface) Scope {
-	return Scope{Capabilities: s.GetCapabilities(), Streams: s.GetStreams(), Commands: s.GetCommands(), Queries: s.GetQueries()}
+	return Scope{Capabilities: s.GetCapabilities(), Streams: s.GetStreams(), Commands: s.GetCommands(), Queries: s.GetQueries(),
+		Occurrences: s.GetOccurrences()}
 }
 
 // Admission is what the Core answered.
