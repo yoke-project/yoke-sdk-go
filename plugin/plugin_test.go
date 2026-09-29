@@ -452,3 +452,32 @@ func TestNothingIsEmittedOnAStreamNotActivated(t *testing.T) {
 		}
 	}
 }
+
+// std: yoke-sdk-go:the-plugin-library.13
+func TestEveryFamilyAUnitOriginatesHasAnAct(t *testing.T) {
+	c := &channel{}
+	u := start(t, c)
+	until(t, "the Session opening", func() bool { return len(c.got()) > 0 })
+	c.send(&pluginv1.Envelope{MessageId: "c-1", SessionId: "sid-1", Payload: &pluginv1.Envelope_Control{Control: &pluginv1.Control{
+		Kind: &pluginv1.Control_Command_{Command: &pluginv1.Control_Command{Type: "calibrate"}}}}})
+	c.send(&pluginv1.Envelope{MessageId: "c-2", SessionId: "sid-1", Payload: &pluginv1.Envelope_Query{Query: &pluginv1.Query{
+		Kind: &pluginv1.Query_Question_{Question: &pluginv1.Query_Question{Type: "head-status"}}}}})
+	command := (<-u.Events()).(plugin.Command)
+	question := (<-u.Events()).(plugin.Question)
+	u.Ack(command, plugin.Accepted, "starting")
+	u.Ack(command, plugin.Done, "")
+	if err := u.Fail(question.ID, "head.unreachable", "the head does not answer"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the acknowledgements and the error", func() bool {
+		var outcomes []pluginv1.Ack_Outcome
+		failed := false
+		for _, e := range c.got() {
+			if e.GetAck() != nil && e.CorrelationId == "c-1" {
+				outcomes = append(outcomes, e.GetAck().GetOutcome())
+			}
+			failed = failed || (e.GetError().GetCode() == "head.unreachable" && e.GetError().GetMessage() == "the head does not answer" && e.CorrelationId == "c-2")
+		}
+		return failed && len(outcomes) == 2 && outcomes[0] == pluginv1.Ack_OUTCOME_ACCEPTED && outcomes[1] == pluginv1.Ack_OUTCOME_DONE
+	})
+}
