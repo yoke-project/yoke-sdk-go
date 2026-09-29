@@ -432,3 +432,6 @@ func (u *Unit) Emit(stream string, payload []byte) error {
 	}
 	return &base.Refusal{Code: "stream.inactive", Message: fmt.Sprintf("the transport of %s is not one this library reaches yet", stream)}
 }
+
+// Fail says what went wrong with a message the Core sent, correlated to it: a code and a message.
+func (u *Unit) Fail(about, code, message string) error { return errors.New("not yet") }
