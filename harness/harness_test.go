@@ -247,3 +247,20 @@ func TestAskedToStopTheHarnessReportsTheEndFirst(t *testing.T) {
 		t.Fatal("the harness did not leave")
 	}
 }
+
+// std: yoke-sdk-go:the-harness.08
+func TestAQuestionIsObservedWithItsBytes(t *testing.T) {
+	c := &channel{}
+	s, _, _ := started(t, c)
+	s.directive(t, "start", nil)
+	<-c.opened
+	c.mu.Lock()
+	c.send(&pluginv1.Envelope{MessageId: "c-1", SessionId: "sid-1", Payload: &pluginv1.Envelope_Query{Query: &pluginv1.Query{
+		Kind: &pluginv1.Query_Question_{Question: &pluginv1.Query_Question{Type: "status", Payload: []byte("how are you")}}}}})
+	c.mu.Unlock()
+	o := s.read(t)
+	fields, _ := o["fields"].(map[string]any)
+	if o["kind"] != "question" || fields["id"] != "c-1" || fields["type"] != "status" || fields["payload"] != "how are you" {
+		t.Errorf("the question was observed as %v", o)
+	}
+}

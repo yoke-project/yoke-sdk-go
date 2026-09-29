@@ -96,3 +96,16 @@
 | **Action** | the process receives a termination signal, and the channel then revokes the Session |
 | **Expected** | the harness reports the end of the Session and then exits zero |
 
+
+## yoke-sdk-go:the-harness.08 — a question is observed with its type and the bytes it carries
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/50.61 · specs/60.46 · arch/90-sdks/04 §The control protocol · arch/50-plugin-surface/05 §The eight |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a harness whose unit was started against a plugin channel |
+| **Action** | the channel sends a question of the type `status` carrying the bytes `how are you` |
+| **Expected** | the harness observes a `question` naming its identity and its type, and carrying the bytes as sent |
