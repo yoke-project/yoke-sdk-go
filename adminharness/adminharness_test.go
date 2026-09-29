@@ -35,8 +35,8 @@ func (core) Call(_ context.Context, r *administrativev1.Request) (*administrativ
 		return nil, st.Err()
 	}
 	return &administrativev1.Response{Answer: &administrativev1.Response_PluginDisable{PluginDisable: &administrativev1.Changed{
-		Previously: &administrativev1.Previously{Value: &administrativev1.Previously_Enabled{Enabled: true}},
-		Effective:  administrativev1.Changed_EFFECTIVE_IMMEDIATELY,
+		Previously:   &administrativev1.Previously{Value: &administrativev1.Previously_Enabled{Enabled: true}},
+		Effective:    administrativev1.Changed_EFFECTIVE_IMMEDIATELY,
 		Consequences: []*administrativev1.Consequence{{Unit: "acquire", Incarnation: 3, What: "its Session was revoked"}},
 	}}}, nil
 }

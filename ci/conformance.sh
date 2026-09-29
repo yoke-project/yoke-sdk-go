@@ -17,5 +17,10 @@ GOBIN="$bin" go install "github.com/yoke-project/yoke/cmd/yoke-core@$resolved"
 GOBIN="$bin" go install "github.com/yoke-project/yoke/cmd/yoke-conformance@$resolved"
 echo "conformance: yoke $resolved"
 (cd "$root" && go build -o "$bin/yoke-go-plugin-harness" ./cmd/yoke-go-plugin-harness)
+(cd "$root" && go build -o "$bin/yoke-go-admin-harness" ./cmd/yoke-go-admin-harness)
 
-"$bin/yoke-conformance" --core "$bin/yoke-core" --harness "$bin/yoke-go-plugin-harness"
+# Each contract the family offers, against its own harness; both run, and either failing fails.
+status=0
+"$bin/yoke-conformance" --core "$bin/yoke-core" --harness "$bin/yoke-go-plugin-harness" || status=1
+"$bin/yoke-conformance" --core "$bin/yoke-core" --harness "$bin/yoke-go-admin-harness" || status=1
+exit "$status"
