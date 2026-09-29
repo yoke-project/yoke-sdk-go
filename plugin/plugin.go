@@ -26,7 +26,7 @@ import (
 )
 
 // SDKLine is what this library says it is, at admission.
-const SDKLine = "yoke-sdk-go 0.1.0"
+const SDKLine = base.SDKLine
 
 // Declaration is what a Plugin says about itself: what is true of the binary wherever it runs.
 type Declaration struct {
