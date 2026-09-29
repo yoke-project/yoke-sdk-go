@@ -70,7 +70,8 @@ develop floor="" verify="":
 release:
     #!/usr/bin/env bash
     # The published release verb of `yoke`, publishing this module alone: resolved at its source,
-    # since the proxy may still hold an older answer for a branch.
+    # since the proxy may still hold an older answer for a branch, with git's automatic collection off,
+    # which would otherwise rewrite the shallow clone under go's second fetch.
     set -euo pipefail
-    version="$(cd "$(mktemp -d)" && GOPROXY=direct go list -m -f '{{{{.Version}}' github.com/yoke-project/yoke@main)"
+    version="$(cd "$(mktemp -d)" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 GOPROXY=direct go list -m -f '{{{{.Version}}' github.com/yoke-project/yoke@main)"
     go run "github.com/yoke-project/yoke/cmd/yoke-release@$version" -modules-only

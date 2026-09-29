@@ -11,8 +11,9 @@ bin="$(mktemp -d)"
 trap 'rm -rf "$bin"' EXIT
 
 # One version for both, resolved once, so the suite and the Core come from one commit.
-# A branch is resolved at its source, since the proxy may still hold an older answer for it.
-resolved="$(cd "$bin" && GOPROXY=direct GOFLAGS=-mod=mod go list -m -f '{{.Version}}' "github.com/yoke-project/yoke@$version")"
+# A branch is resolved at its source, since the proxy may still hold an older answer for it, with git's
+# automatic collection off, which would otherwise rewrite the shallow clone under go's second fetch.
+resolved="$(cd "$bin" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 GOPROXY=direct GOFLAGS=-mod=mod go list -m -f '{{.Version}}' "github.com/yoke-project/yoke@$version")"
 GOBIN="$bin" go install "github.com/yoke-project/yoke/cmd/yoke-core@$resolved"
 GOBIN="$bin" go install "github.com/yoke-project/yoke/cmd/yoke-conformance@$resolved"
 echo "conformance: yoke $resolved"
