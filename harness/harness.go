@@ -213,7 +213,7 @@ func (h *state) observe(u *plugin.Unit, send func(line)) {
 			h.mu.Lock()
 			h.questions[e.ID] = e
 			h.mu.Unlock()
-			send(line{Type: "observation", Kind: "question", Fields: map[string]any{"id": e.ID, "type": e.Type}})
+			send(line{Type: "observation", Kind: "question", Fields: map[string]any{"id": e.ID, "type": e.Type, "payload": string(e.Payload)}})
 		case plugin.Activated:
 			send(line{Type: "observation", Kind: "activated", Fields: map[string]any{"stream": e.Stream, "transport": e.Transport}})
 		case plugin.Stopped:
