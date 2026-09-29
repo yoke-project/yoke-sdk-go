@@ -58,6 +58,17 @@ type Refusal struct {
 	Code    string
 	Message string
 	Stage   string
+	// Subject is what the refusal names, where it names a subject; Item the item withheld or undeclared,
+	// where it names one.
+	Subject Subject
+	Item    string
+}
+
+// Subject is what a refusal names: a kind, an identity, and a unit's life where one is named.
+type Subject struct {
+	Kind        string
+	Identity    string
+	Incarnation uint64
 }
 
 func (r *Refusal) Error() string {
