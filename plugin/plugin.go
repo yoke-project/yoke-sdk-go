@@ -434,4 +434,6 @@ func (u *Unit) Emit(stream string, payload []byte) error {
 }
 
 // Fail says what went wrong with a message the Core sent, correlated to it: a code and a message.
-func (u *Unit) Fail(about, code, message string) error { return errors.New("not yet") }
+func (u *Unit) Fail(about, code, message string) error {
+	return u.answer(about, &pluginv1.Envelope{Payload: &pluginv1.Envelope_Error{Error: &pluginv1.Error{Code: code, Message: message}}})
+}
