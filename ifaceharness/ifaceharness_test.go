@@ -165,7 +165,7 @@ func TestARefusalIsReportedWithWhatItNames(t *testing.T) {
 }
 
 // std: yoke-sdk-go:the-interface-harness.04
-func TestAnUnknownVerbFinishAndNoWire(t *testing.T) {
+func TestTheInterfaceHarnessKnowsNoOtherVerbFinishesAndHoldsNoWire(t *testing.T) {
 	s, _, done := started(t)
 	if r, _ := s.directive(t, "emit", nil); r["unrecognised"] != true {
 		t.Errorf("emit was reported as %v", r)
@@ -194,7 +194,7 @@ func TestAnUnknownVerbFinishAndNoWire(t *testing.T) {
 }
 
 // std: yoke-sdk-go:the-interface-harness.05
-func TestTheSuiteIsRunAgainstIt(t *testing.T) {
+func TestTheSuiteIsRunAgainstTheInterfaceHarness(t *testing.T) {
 	script, err := os.ReadFile("../ci/conformance.sh")
 	if err != nil {
 		t.Fatal(err)

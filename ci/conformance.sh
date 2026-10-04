@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The conformance suite against this family's plugin harness: L2, which blocks.
+# The conformance suite against each of this family's harnesses: L2, which blocks.
 #
 # The suite and the Core it drives come from `yoke` through the module proxy, never from a sibling;
 # the harness is built from this checkout. Usage: conformance.sh [yoke version, default main]
@@ -19,9 +19,11 @@ GOBIN="$bin" go install "github.com/yoke-project/yoke/cmd/yoke-conformance@$reso
 echo "conformance: yoke $resolved"
 (cd "$root" && go build -o "$bin/yoke-go-plugin-harness" ./cmd/yoke-go-plugin-harness)
 (cd "$root" && go build -o "$bin/yoke-go-admin-harness" ./cmd/yoke-go-admin-harness)
+(cd "$root" && go build -o "$bin/yoke-go-interface-harness" ./cmd/yoke-go-interface-harness)
 
-# Each contract the family offers, against its own harness; both run, and either failing fails.
+# Each contract the family offers, against its own harness; every one runs, and any failing fails.
 status=0
 "$bin/yoke-conformance" --core "$bin/yoke-core" --harness "$bin/yoke-go-plugin-harness" || status=1
 "$bin/yoke-conformance" --core "$bin/yoke-core" --harness "$bin/yoke-go-admin-harness" || status=1
+"$bin/yoke-conformance" --core "$bin/yoke-core" --harness "$bin/yoke-go-interface-harness" || status=1
 exit "$status"
