@@ -69,9 +69,17 @@ develop floor="" verify="":
 # `vX.Y.Z` that names the commit. It runs where the tag is seen.
 release:
     #!/usr/bin/env bash
+    set -euo pipefail
+    # A release's tag and the line its libraries say they are agree, or nothing is published.
+    line="$(sed -n 's/^const SDKLine = "\(.*\)"$/\1/p' base/base.go)"
+    for tag in $(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true); do
+        if [[ "$line" != "yoke-sdk-go ${tag#v}" ]]; then
+            echo "release: the SDK line is \"$line\" and the tag is $tag: nothing is published" >&2
+            exit 1
+        fi
+    done
     # The published release verb of `yoke`, publishing this module alone: resolved at its source,
     # since the proxy may still hold an older answer for a branch, with git's automatic collection off,
     # which would otherwise rewrite the shallow clone under go's second fetch.
-    set -euo pipefail
     version="$(cd "$(mktemp -d)" && GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=gc.auto GIT_CONFIG_VALUE_0=0 GOPROXY=direct go list -m -f '{{{{.Version}}' github.com/yoke-project/yoke@main)"
     go run "github.com/yoke-project/yoke/cmd/yoke-release@$version" -modules-only
