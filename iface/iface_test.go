@@ -297,7 +297,7 @@ func TestOneMethodPerOperationOnOneConnection(t *testing.T) {
 }
 
 // std: yoke-sdk-go:the-interface-library.04
-func TestARefusalIsTheBasesErrorWithItsDetail(t *testing.T) {
+func TestAnInterfaceRefusalIsTheBasesErrorWithItsSuspension(t *testing.T) {
 	c := &core{opening: opening(1), answer: func(call string, r *interfacev1.Request, send func(*interfacev1.CoreFrame)) {
 		ref := &interfacev1.Refusal{Code: "subject.unknown", Message: "no unit nobody",
 			Detail: &interfacev1.Refusal_Subject{Subject: &interfacev1.Subject{Kind: "unit", Identity: "nobody"}}}
