@@ -3,6 +3,7 @@ package plugin_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -290,7 +291,10 @@ func TestTheSessionOpensAndBeatsOnTheCoresTerms(t *testing.T) {
 		r.Heartbeat.Interval = durationpb.New(100 * time.Millisecond)
 		return r
 	}}
-	start(t, c)
+	u := start(t, c)
+	if err := u.Health(10, "ready"); err != nil {
+		t.Fatal(err)
+	}
 	time.Sleep(450 * time.Millisecond)
 	got := c.got()
 	if len(got) == 0 || got[0].GetSession().GetOpen() == nil || got[0].SessionId != "sid-1" {
@@ -314,6 +318,46 @@ func TestTheSessionOpensAndBeatsOnTheCoresTerms(t *testing.T) {
 	}
 	if _, has := reflect.TypeOf(plugin.Declaration{}).FieldByName("HeartbeatInterval"); has {
 		t.Error("the author can choose the interval")
+	}
+}
+
+// std: yoke-sdk-go:the-plugin-library.14
+func TestABeatRepeatsTheAuthorsLastReport(t *testing.T) {
+	c := &channel{answer: func(req *pluginv1.RegisterRequest) *pluginv1.RegisterResponse {
+		r := accept(req)
+		r.Heartbeat.Interval = durationpb.New(100 * time.Millisecond)
+		return r
+	}}
+	u := start(t, c)
+	health := func() []string {
+		var reports []string
+		for _, e := range c.got() {
+			if h := e.GetHealth(); h != nil {
+				reports = append(reports, fmt.Sprintf("%d %s", h.Grade, h.Line))
+			}
+		}
+		return reports
+	}
+	time.Sleep(350 * time.Millisecond)
+	if before := health(); len(before) != 0 {
+		t.Fatalf("before the author reported, the channel received %q", before)
+	}
+	if err := u.Health(40, "warming"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(350 * time.Millisecond)
+	first := health()
+	if err := u.Health(10, "ready"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(350 * time.Millisecond)
+	all := health()
+	second := all[slices.Index(all, "10 ready"):]
+	if len(first) < 3 || slices.ContainsFunc(first, func(r string) bool { return r != "40 warming" }) {
+		t.Errorf("after the first report the channel received %q", first)
+	}
+	if len(second) < 3 || slices.ContainsFunc(second, func(r string) bool { return r != "10 ready" }) {
+		t.Errorf("after the second report the channel received %q", second)
 	}
 }
 
