@@ -33,3 +33,18 @@ check_an_untagged_commit_publishes_nothing() {
   [[ -z "$out" ]] || { echo "the verb emitted: $out"; return 1; }
   grep -q "nothing is published" <<<"$said" || { echo "the verb did not say so: $said"; return 1; }
 }
+
+# std: yoke-sdk-go:the-release-run.04
+check_a_tag_the_line_disagrees_with_publishes_nothing() {
+  local copy out errs code said
+  copy="$(mktemp -d)"
+  cp -a "$rr_root/." "$copy"
+  rm -rf "$copy/.results"
+  git -C "$copy" tag -f v0.9.9 >/dev/null
+  errs="$(mktemp)"
+  out="$(cd "$copy" && just release 2> "$errs")"; code=$?
+  said="$(cat "$errs")"; rm -f "$errs"; rm -rf "$copy"
+  (( code != 0 )) || { echo "the verb exited zero: $said"; return 1; }
+  [[ -z "$out" ]] || { echo "the verb emitted: $out"; return 1; }
+  grep -q "yoke-sdk-go " <<<"$said" && grep -q "v0.9.9" <<<"$said" || { echo "the verb did not name the line and the tag: $said"; return 1; }
+}

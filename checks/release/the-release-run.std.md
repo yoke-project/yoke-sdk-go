@@ -43,3 +43,16 @@
 | **Precondition** | a checkout whose commit carries no release tag |
 | **Action** | run the `release` verb |
 | **Expected** | it exits zero with nothing on standard output, and its error stream says nothing is published from this commit |
+
+## yoke-sdk-go:the-release-run.04 — at a release tag the SDK line disagrees with, the verb publishes nothing and refuses
+
+| Field | Value |
+| --- | --- |
+| **Cites** | prj_structure/95 §The release command · specs/50.15 · specs/90.9 |
+| **Level** | L1 |
+| **Method** | check |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a copy of the checkout whose commit carries the release tag `v0.9.9`, which the SDK line does not name |
+| **Action** | run the `release` verb |
+| **Expected** | it exits non-zero with nothing on standard output, and its error stream names the line and the tag |
