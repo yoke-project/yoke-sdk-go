@@ -3,9 +3,10 @@
 // One declaration is both the Manifest the library generates and the surface its registration claims,
 // so the two cannot be written apart. Starting a unit performs the first acts in their order: read the
 // environment, bind the unit's own socket, register, open the Session — and then beats on the terms the
-// Core assigned. Everything the Session brings is surfaced, its end included: a Session that ends ends
-// the incarnation, and the library never reconnects, never retries an admission, never polls, never
-// creates a stream's transport and never chooses a severity.
+// Core assigned, repeating the author's last health report. Everything the Session brings is surfaced,
+// its end included: a Session that ends ends the incarnation, and the library never reconnects, never
+// retries an admission, never polls, never creates a stream's transport and never chooses a severity or
+// a grade.
 package plugin
 
 import (
@@ -184,6 +185,11 @@ type Unit struct {
 	ended     bool
 	closing   bool
 	endedOnce sync.Once
+
+	// The author's last health report, which every beat repeats; none until one. Held while a report is
+	// read and sent, so a beat never sends a report older than one the author has already sent.
+	reporting sync.Mutex
+	health    *pluginv1.Health
 }
 
 // Start starts a unit from its environment.
@@ -274,7 +280,9 @@ func (u *Unit) answer(to string, e *pluginv1.Envelope) error {
 	return u.stream.Send(u.envelopes.Answer(to, e))
 }
 
-// beat sends a heartbeat at the interval the Core assigned, until the Session ends.
+// beat repeats the author's last health report at the interval the Core assigned, until the Session
+// ends. Before the author's first report it sends nothing: a grade is the author's statement, and a unit
+// that never reports loses its liveness as a unit that sends nothing does.
 func (u *Unit) beat(interval time.Duration) {
 	if interval <= 0 {
 		return
@@ -286,7 +294,11 @@ func (u *Unit) beat(interval time.Duration) {
 		case <-u.done:
 			return
 		case <-ticker.C:
-			u.send(&pluginv1.Envelope{Payload: &pluginv1.Envelope_Health{Health: &pluginv1.Health{Grade: 99}}})
+			u.reporting.Lock()
+			if last := u.health; last != nil {
+				u.send(&pluginv1.Envelope{Payload: &pluginv1.Envelope_Health{Health: &pluginv1.Health{Grade: last.Grade, Line: last.Line}}})
+			}
+			u.reporting.Unlock()
 		}
 	}
 }
@@ -413,11 +425,16 @@ func (u *Unit) Report(occurrence string, severity Severity, line string, detail 
 	return u.send(&pluginv1.Envelope{Payload: &pluginv1.Envelope_Event{Event: &pluginv1.Event{Occurrence: occurrence, Severity: severity.value, Line: line, Detail: detail}}})
 }
 
-// Health reports how well the unit is: a grade from 0 to 99, and a line.
+// Health reports how well the unit is: a grade from 0 to 99, and a line. The library repeats the last
+// report at every beat, and sends no beat before the first: a unit keeps its liveness only once its
+// author has reported, so the first report must come within the tolerance the Core assigned.
 func (u *Unit) Health(grade uint8, line string) error {
 	if grade > 99 {
 		return fmt.Errorf("a grade runs from 0 to 99, and %d is not one", grade)
 	}
+	u.reporting.Lock()
+	defer u.reporting.Unlock()
+	u.health = &pluginv1.Health{Grade: uint32(grade), Line: line}
 	return u.send(&pluginv1.Envelope{Payload: &pluginv1.Envelope_Health{Health: &pluginv1.Health{Grade: uint32(grade), Line: line}}})
 }
 
