@@ -11,6 +11,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"google.golang.org/protobuf/proto"
 
 	pluginv1 "github.com/yoke-project/yoke/proto/yoke/plugin/v1"
 
@@ -181,7 +183,7 @@ type Unit struct {
 	cancel    context.CancelFunc
 
 	mu        sync.Mutex
-	active    map[string]Activated
+	active    map[string]*emitting
 	ended     bool
 	closing   bool
 	endedOnce sync.Once
@@ -238,7 +240,7 @@ func StartWith(ctx context.Context, d Declaration, getenv func(string) string) (
 	u := &Unit{
 		admission: Admission{Restricted: resp.Outcome == pluginv1.RegisterResponse_OUTCOME_ACCEPTED_WITH_RESTRICTIONS, Granted: scopeOf(resp.Granted), Withheld: scopeOf(resp.Withheld)},
 		conn:      conn, listener: listener, stream: stream, envelopes: base.NewEnvelopes(resp.SessionId),
-		events: make(chan any, 64), done: make(chan struct{}), cancel: cancel, active: map[string]Activated{},
+		events: make(chan any, 64), done: make(chan struct{}), cancel: cancel, active: map[string]*emitting{},
 	}
 	if err := u.send(&pluginv1.Envelope{Payload: &pluginv1.Envelope_Session{Session: &pluginv1.SessionMessage{Kind: &pluginv1.SessionMessage_Open_{Open: &pluginv1.SessionMessage_Open{}}}}}); err != nil {
 		u.finish(Ended{Cause: "protocol failure", Line: err.Error()})
@@ -329,15 +331,28 @@ func (u *Unit) receive() {
 		case e.GetControl().GetActivate() != nil:
 			a := e.GetControl().GetActivate()
 			act := Activated{Stream: a.Stream, Transport: a.Transport.String(), Address: a.Address}
+			flow, err := connect(a)
+			if err != nil {
+				u.answer(e.MessageId, ack(pluginv1.Ack_OUTCOME_FAILED, err.Error()))
+				continue
+			}
 			u.mu.Lock()
-			u.active[a.Stream] = act
+			if former := u.active[a.Stream]; former != nil {
+				former.conn.Close()
+			}
+			u.active[a.Stream] = flow
 			u.mu.Unlock()
+			u.answer(e.MessageId, ack(pluginv1.Ack_OUTCOME_DONE, ""))
 			u.events <- act
 		case e.GetControl().GetStop() != nil:
 			stream := e.GetControl().GetStop().Stream
 			u.mu.Lock()
+			if flow := u.active[stream]; flow != nil {
+				flow.conn.Close()
+			}
 			delete(u.active, stream)
 			u.mu.Unlock()
+			u.answer(e.MessageId, ack(pluginv1.Ack_OUTCOME_DONE, ""))
 			u.events <- Stopped{Stream: stream}
 		case e.GetQuery().GetQuestion() != nil:
 			q := e.GetQuery().GetQuestion()
@@ -353,6 +368,10 @@ func (u *Unit) finish(end Ended) {
 	u.endedOnce.Do(func() {
 		u.mu.Lock()
 		u.ended = true
+		for _, flow := range u.active {
+			flow.conn.Close()
+		}
+		u.active = map[string]*emitting{}
 		u.mu.Unlock()
 		u.events <- end
 		close(u.events)
@@ -438,16 +457,68 @@ func (u *Unit) Health(grade uint8, line string) error {
 	return u.send(&pluginv1.Envelope{Payload: &pluginv1.Envelope_Health{Health: &pluginv1.Health{Grade: uint32(grade), Line: line}}})
 }
 
-// Emit sends data on a stream. Only the Core creates a stream's transport, so a stream it has not
-// activated has nowhere to be written, and the library refuses rather than make one.
+// Emit sends data on a stream, on the transport its activation named: one data envelope per packet on
+// the ordered transport, one frame per datagram on the framed one, numbered from 1 within the
+// activation. Only the Core creates a stream's transport, so a stream it has not activated has nowhere to
+// be written, and the library refuses rather than make one.
 func (u *Unit) Emit(stream string, payload []byte) error {
 	u.mu.Lock()
-	_, active := u.active[stream]
+	flow := u.active[stream]
 	u.mu.Unlock()
-	if !active {
+	if flow == nil {
 		return &base.Refusal{Code: "stream.inactive", Message: fmt.Sprintf("the stream %s has not been activated", stream)}
 	}
-	return &base.Refusal{Code: "stream.inactive", Message: fmt.Sprintf("the transport of %s is not one this library reaches yet", stream)}
+	flow.mu.Lock()
+	defer flow.mu.Unlock()
+	flow.next++
+	var message []byte
+	if flow.framed {
+		message = make([]byte, 16, 16+len(payload))
+		binary.LittleEndian.PutUint64(message[0:8], flow.next)
+		binary.LittleEndian.PutUint64(message[8:16], uint64(time.Now().UnixNano()))
+		message = append(message, payload...)
+	} else {
+		e := u.envelopes.Seal(&pluginv1.Envelope{Payload: &pluginv1.Envelope_Data{Data: &pluginv1.Data{Sequence: flow.next, Payload: payload}}})
+		var err error
+		if message, err = proto.Marshal(e); err != nil {
+			return err
+		}
+	}
+	if _, err := flow.conn.Write(message); err != nil {
+		return &base.Refusal{Code: "stream.inactive", Message: fmt.Sprintf("the transport of %s took nothing: %v", stream, err)}
+	}
+	return nil
+}
+
+// emitting is one activated stream: the library's connection to its transport, and the next sequence.
+type emitting struct {
+	conn   net.Conn
+	framed bool
+	mu     sync.Mutex
+	next   uint64
+}
+
+// connect reaches the transport an activation names, as the Core created it.
+func connect(a *pluginv1.Control_Activate) (*emitting, error) {
+	switch a.Transport {
+	case pluginv1.Control_Activate_TRANSPORT_ORDERED:
+		conn, err := net.Dial("unixpacket", a.Address)
+		if err != nil {
+			return nil, fmt.Errorf("the transport of %s at %s cannot be reached: %w", a.Stream, a.Address, err)
+		}
+		return &emitting{conn: conn}, nil
+	case pluginv1.Control_Activate_TRANSPORT_FRAMED:
+		conn, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: a.Address, Net: "unixgram"})
+		if err != nil {
+			return nil, fmt.Errorf("the transport of %s at %s cannot be reached: %w", a.Stream, a.Address, err)
+		}
+		return &emitting{conn: conn, framed: true}, nil
+	}
+	return nil, fmt.Errorf("the transport %s of %s is not one this library reaches", a.Transport, a.Stream)
+}
+
+func ack(outcome pluginv1.Ack_Outcome, line string) *pluginv1.Envelope {
+	return &pluginv1.Envelope{Payload: &pluginv1.Envelope_Ack{Ack: &pluginv1.Ack{Outcome: outcome, Line: line}}}
 }
 
 // Fail says what went wrong with a message the Core sent, correlated to it: a code and a message.
