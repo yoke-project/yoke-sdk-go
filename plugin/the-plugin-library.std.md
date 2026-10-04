@@ -186,3 +186,42 @@
 | **Precondition** | a plugin channel that accepts with a heartbeat interval of 100 ms |
 | **Action** | start a unit and wait 350 ms; the author reports 40 with a line, and 350 ms pass; the author reports 10 with another line, and 350 ms pass |
 | **Expected** | no health report reaches the channel before the author's first; after it, at least two beats repeat 40 and its line; from the second on, at least two beats repeat 10 and its line, and nothing older follows it; no report carries a grade or a line the author did not state |
+
+## yoke-sdk-go:the-plugin-library.15 — an activation connects the library to the transport it names, and is acknowledged
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/50.86 · specs/90.33 · arch/50-plugin-surface/07 §A stream flows because it was told to · arch/50-plugin-surface/08 §The other transports |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | an open Session; a packet socket and a datagram socket the test listens on, and an address nothing listens on |
+| **Action** | the channel activates one stream on the ordered transport, one on the framed transport, and one at the address nothing listens on |
+| **Expected** | the library connects to each socket that listens and acknowledges each activation as done, and the author is handed each activation; the third is acknowledged as failed, with a line saying why, and that stream stays inactive |
+
+## yoke-sdk-go:the-plugin-library.16 — Emit writes one data envelope per packet, or one frame per datagram, numbered from 1
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/50.90 · arch/50-plugin-surface/07 §The frame · arch/50-plugin-surface/08 §The other transports · arch/00-system/05 §The encoding, and the framing |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | one stream activated on each transport |
+| **Action** | emit three payloads on each |
+| **Expected** | the ordered socket reads three data envelopes, sequences 1 to 3, each with a message identity, the Session's identity, a send time and the payload unchanged; the datagram socket reads three frames, each a little-endian header of sequence 1 to 3 and a clock, then the payload unchanged; nothing reached the Session |
+
+## yoke-sdk-go:the-plugin-library.17 — a stop closes the transport, is acknowledged, and Emit is refused after it
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/90.33 · arch/50-plugin-surface/07 §Three routes end a stream, and the transport goes in all three · arch/90-sdks/06 §It may not create a stream's transport |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | one stream activated on the ordered transport |
+| **Action** | the channel stops it; the author emits on it |
+| **Expected** | the library closes its connection, acknowledges the stop as done, and hands the author the stop; the emission is refused with `stream.inactive`, and nothing reaches the socket |
