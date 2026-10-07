@@ -109,3 +109,29 @@
 | **Precondition** | a harness whose unit was started against a plugin channel |
 | **Action** | the channel sends a question of the type `status` carrying the bytes `how are you` |
 | **Expected** | the harness observes a `question` naming its identity and its type, and carrying the bytes as sent |
+
+## yoke-sdk-go:the-harness.09 — it declares a stream on each transport, each governed by a capability
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/50.86 · arch/50-plugin-surface/07 §What the two tolerances select · arch/90-sdks/03 §A real Core, and no fixture |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | none |
+| **Action** | read the harness's declaration |
+| **Expected** | one stream that tolerates neither loss nor reorder, and one that tolerates loss, each governed by a capability of its own |
+
+## yoke-sdk-go:the-harness.10 — an activation is observed with its transport, and an emission goes onto it
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/50.86 · specs/90.33 · arch/50-plugin-surface/07 §A stream flows because it was told to · arch/90-sdks/04 §The control protocol |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a harness whose unit was started against a plugin channel, and a packet socket listening as the Core's would |
+| **Action** | the channel activates the stream that tolerates nothing on that socket; then the suite issues `emit` on it |
+| **Expected** | an observation `activated` naming the stream and the transport `ordered`; then an answer with no refusal, and one packet on the socket |
