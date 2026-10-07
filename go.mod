@@ -15,3 +15,6 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )
+
+// v0.3.0 was tagged while its SDK line still said 0.2.1, so its release published nothing.
+retract v0.3.0
