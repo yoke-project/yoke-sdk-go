@@ -24,7 +24,7 @@ import (
 const PluginContract = int(pluginv1.Contract_CONTRACT_VERSION)
 
 // SDKLine is what this project's libraries say they are: at admission, and in a harness's hello.
-const SDKLine = "yoke-sdk-go 0.2.1"
+const SDKLine = "yoke-sdk-go 0.3.1"
 
 // Env is what a party is handed, and all it may assume.
 type Env struct {
