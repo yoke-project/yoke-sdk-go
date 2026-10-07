@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,16 +21,18 @@ import (
 	"github.com/yoke-project/yoke-sdk-go/plugin"
 )
 
-// Declaration is what the harness declares: one object of every kind, each governed by a capability.
+// Declaration is what the harness declares: one object of every kind, a stream on each transport, each
+// governed by a capability.
 func Declaration() plugin.Declaration {
 	return plugin.Declaration{
 		ID:          "com.yoke.conformance.go",
-		Streams:     []plugin.Stream{{ID: "conformance.data"}},
+		Streams:     []plugin.Stream{{ID: "conformance.data"}, {ID: "conformance.frames", ToleratesLoss: true}},
 		Commands:    []string{"calibrate"},
 		Queries:     []string{"status"},
 		Occurrences: []string{"conformance.drift"},
 		Capabilities: []plugin.Capability{
 			{Name: "stream.data.publish", Governs: plugin.Object{Stream: "conformance.data"}},
+			{Name: "stream.frames.publish", Governs: plugin.Object{Stream: "conformance.frames"}},
 			{Name: "command.calibrate.accept", Governs: plugin.Object{Command: "calibrate"}},
 			{Name: "query.status.answer", Governs: plugin.Object{Query: "status"}},
 			{Name: "event.drift.report", Governs: plugin.Object{Occurrence: "conformance.drift"}},
@@ -215,7 +218,7 @@ func (h *state) observe(u *plugin.Unit, send func(line)) {
 			h.mu.Unlock()
 			send(line{Type: "observation", Kind: "question", Fields: map[string]any{"id": e.ID, "type": e.Type, "payload": string(e.Payload)}})
 		case plugin.Activated:
-			send(line{Type: "observation", Kind: "activated", Fields: map[string]any{"stream": e.Stream, "transport": e.Transport}})
+			send(line{Type: "observation", Kind: "activated", Fields: map[string]any{"stream": e.Stream, "transport": strings.ToLower(strings.TrimPrefix(e.Transport, "TRANSPORT_"))}})
 		case plugin.Stopped:
 			send(line{Type: "observation", Kind: "stopped", Fields: map[string]any{"stream": e.Stream}})
 		case plugin.Refused:
