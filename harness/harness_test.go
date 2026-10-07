@@ -264,3 +264,81 @@ func TestAQuestionIsObservedWithItsBytes(t *testing.T) {
 		t.Errorf("the question was observed as %v", o)
 	}
 }
+
+// std: yoke-sdk-go:the-harness.09
+func TestItDeclaresAStreamOnEachTransport(t *testing.T) {
+	d := harness.Declaration()
+	governed := func(stream string) bool {
+		for _, c := range d.Capabilities {
+			if c.Governs.Stream == stream {
+				return true
+			}
+		}
+		return false
+	}
+	var strict, lossy string
+	for _, s := range d.Streams {
+		switch {
+		case !s.ToleratesLoss && !s.ToleratesReorder:
+			strict = s.ID
+		case s.ToleratesLoss:
+			lossy = s.ID
+		}
+	}
+	if strict == "" || lossy == "" {
+		t.Fatalf("the streams declared are %v", d.Streams)
+	}
+	if !governed(strict) || !governed(lossy) {
+		t.Errorf("a stream is governed by no capability: %v", d.Capabilities)
+	}
+}
+
+// std: yoke-sdk-go:the-harness.10
+func TestAnActivationIsObservedAndAnEmissionGoesOntoIt(t *testing.T) {
+	dir, _ := os.MkdirTemp("", "yt")
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	path := filepath.Join(dir, "data.sock")
+	l, err := net.ListenUnix("unixpacket", &net.UnixAddr{Name: path, Net: "unixpacket"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	packets := make(chan int, 4)
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 1<<16)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			packets <- n
+		}
+	}()
+	c := &channel{}
+	s, _, _ := started(t, c)
+	s.directive(t, "start", nil)
+	<-c.opened
+	c.mu.Lock()
+	c.send(&pluginv1.Envelope{MessageId: "c-1", SessionId: "sid-1", Payload: &pluginv1.Envelope_Control{Control: &pluginv1.Control{
+		Kind: &pluginv1.Control_Activate_{Activate: &pluginv1.Control_Activate{Stream: "conformance.data",
+			Transport: pluginv1.Control_Activate_TRANSPORT_ORDERED, Address: path}}}}})
+	c.mu.Unlock()
+	o := s.read(t)
+	if fields, _ := o["fields"].(map[string]any); o["kind"] != "activated" || fields["stream"] != "conformance.data" || fields["transport"] != "ordered" {
+		t.Fatalf("observed %v", o)
+	}
+	_, res := s.directive(t, "emit", map[string]any{"stream": "conformance.data", "payload": "frame"})
+	if res["refusal"] != nil {
+		t.Fatalf("the emission was refused: %v", res)
+	}
+	select {
+	case <-packets:
+	case <-time.After(3 * time.Second):
+		t.Fatal("nothing arrived on the transport")
+	}
+}
