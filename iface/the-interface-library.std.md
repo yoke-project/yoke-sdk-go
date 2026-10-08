@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Feature** | the Go library an interface client is written with, over the same base and on the `local` projection: a channel's address computed from the instance's identity and the channel's name, or handed to a managed interface; attaching surfaces the opening picture, the standing subscription and the contract's version, and a version it does not speak is refused before any operation; one method per operation of the union, every request stating the contract's version, all on one connection and each answered on its own; a refusal as the base's error with its code and its detail, a suspension's grade and the channel it favours included; a subscription delivered in order until its caller ends it, and nothing reconnected; confirmation sent only when the author confirms; a stream's delivery read where its answer says it arrives — a socket or the connection — in order, until it ends |
+| **Feature** | the Go library an interface client is written with, over the same base and on the `local` projection: a channel's address computed from the instance's identity and the channel's name, or handed to a managed interface; attaching surfaces the opening picture, the standing subscription and the contract's version, and a version it does not speak is refused before any operation; one method per operation of the union, every request stating the contract's version, all on one connection and each answered on its own; a refusal as the base's error with its code and its detail, a suspension's grade and the channel it favours included; a subscription delivered in order until its caller ends it, and nothing reconnected; confirmation sent only when the author confirms; a stream's delivery read where its answer says it arrives — a socket or the connection — in order, until it ends; and closing an attachment ends it in order, so the Core reads a client that closed |
 | **Planning item** | yoke-project/yoke-sdk-go#44 |
 
 ## yoke-sdk-go:the-interface-library.01 — a channel's address is computed from the instance's identity and the channel's name, or handed to a managed interface
@@ -95,3 +95,16 @@
 | **Precondition** | a Core that answers one subscription to a stream with a per-subscriber socket it listens on, and another with a delivery on the connection; and sends two frames on each before ending each |
 | **Action** | subscribe to the stream twice and read each delivery; release a third |
 | **Expected** | each delivery surfaces whether the stream is flowing, then the two frames in order, each with its sequence, its clock and its payload, then its end; releasing sends `stream.unsubscribe` naming the delivery |
+
+## yoke-sdk-go:the-interface-library.08 — closing an attachment ends it in order, so the Core reads a client that closed
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/70.31 · arch/70-interface-surface/03 §What ends an attachment |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a Core that records how each attachment's stream of requests ended |
+| **Action** | attach, make one call, and close the attachment |
+| **Expected** | the Core reads the end of the client's requests — the client closed — and not a connection that went away; `Close` returns once the attachment has ended |
