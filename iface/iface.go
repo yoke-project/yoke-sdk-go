@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -208,6 +209,8 @@ type Attachment struct {
 	count   int
 	calls   map[string]*queue
 	ended   bool
+	// received is closed once nothing more arrives from the Core.
+	received chan struct{}
 }
 
 // dial reaches a channel: a path is a local socket, anything else an address on loopback.
@@ -262,7 +265,7 @@ func Attach(ctx context.Context, address string) (*Attachment, error) {
 			"this library speaks the interface contract's version %d, and the Core %d", Contract, o.GetVersion())})
 	}
 	a := &Attachment{Picture: o.GetPicture(), Version: int(o.GetVersion()), conn: conn, stream: stream, end: end,
-		calls: map[string]*queue{}}
+		calls: map[string]*queue{}, received: make(chan struct{})}
 	if standing := o.GetSubscription(); standing != "" {
 		a.Standing = &Subscription{ID: standing, a: a, frames: a.register(standing), standing: true}
 	}
@@ -270,8 +273,19 @@ func Attach(ctx context.Context, address string) (*Attachment, error) {
 	return a, nil
 }
 
-// Close ends the attachment.
+// closing is how long Close waits for the Core to end an attachment told it is closing.
+const closing = time.Second
+
+// Close ends the attachment in order: it tells the Core the client is done, so the Core reads a client
+// that closed rather than one that went away, and lets the connection go once the Core has ended it.
 func (a *Attachment) Close() error {
+	a.sending.Lock()
+	a.stream.CloseSend()
+	a.sending.Unlock()
+	select {
+	case <-a.received:
+	case <-time.After(closing):
+	}
 	a.end()
 	return a.conn.Close()
 }
@@ -289,6 +303,7 @@ func (a *Attachment) receive() {
 				delete(a.calls, call)
 			}
 			a.mu.Unlock()
+			close(a.received)
 			return
 		}
 		if d := f.GetAnswer().GetStreamSubscribe(); d != nil && d.GetConnection() {
