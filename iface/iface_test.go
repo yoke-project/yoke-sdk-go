@@ -35,6 +35,7 @@ type core struct {
 	attachments int
 	requests    []*interfacev1.Request
 	cancelled   []string
+	endings     []error // how each attachment's requests ended: io.EOF for a client that closed
 }
 
 func (c *core) Attach(stream interfacev1.Interface_AttachServer) error {
@@ -58,6 +59,9 @@ func (c *core) Attach(stream interfacev1.Interface_AttachServer) error {
 	for {
 		f, err := stream.Recv()
 		if err != nil {
+			c.mu.Lock()
+			c.endings = append(c.endings, err)
+			c.mu.Unlock()
 			return nil
 		}
 		if f.GetCancel() != nil {
@@ -511,5 +515,38 @@ func TestAStreamsDeliveryIsReadWhereItsAnswerSaysItArrives(t *testing.T) {
 	sent := c.seen()
 	if last := sent[len(sent)-1]; last.GetStreamUnsubscribe().GetDelivery() != "00000003" {
 		t.Errorf("releasing sent %v", last)
+	}
+}
+
+// std: yoke-sdk-go:the-interface-library.08
+func TestClosingAnAttachmentEndsItInOrder(t *testing.T) {
+	c := &core{opening: opening(1), answer: func(call string, r *interfacev1.Request, send func(*interfacev1.CoreFrame)) {
+		send(answered(call, &interfacev1.Response{Answer: &interfacev1.Response_Read{Read: &interfacev1.Records{}}}))
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	a, err := iface.Attach(ctx, serve(t, c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Read(ctx, "instance", ""); err != nil {
+		t.Fatal(err)
+	}
+	a.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		c.mu.Lock()
+		endings := append([]error(nil), c.endings...)
+		c.mu.Unlock()
+		if len(endings) == 1 {
+			if endings[0] != io.EOF {
+				t.Errorf("the Core read the attachment end as %v, and not as the client closing", endings[0])
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the Core saw %d endings", len(endings))
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
