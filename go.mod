@@ -3,7 +3,7 @@ module github.com/yoke-project/yoke-sdk-go
 go 1.26
 
 require (
-	github.com/yoke-project/yoke/proto v0.3.0
+	github.com/yoke-project/yoke/proto v0.3.1-0.20261011164235-877de27e0f27
 	go.yaml.in/yaml/v3 v3.0.5
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12

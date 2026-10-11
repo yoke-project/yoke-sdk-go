@@ -21,11 +21,13 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/sys/unix"
 	"google.golang.org/protobuf/proto"
 
 	pluginv1 "github.com/yoke-project/yoke/proto/yoke/plugin/v1"
 
 	"github.com/yoke-project/yoke-sdk-go/base"
+	"github.com/yoke-project/yoke-sdk-go/internal/ring"
 )
 
 // SDKLine is what this library says it is, at admission.
@@ -218,6 +220,8 @@ func StartWith(ctx context.Context, d Declaration, getenv func(string) string) (
 	resp, err := pluginv1.NewRegisterClient(conn).Register(ctx, &pluginv1.RegisterRequest{
 		Plugin: env.Plugin, Unit: env.Unit, Token: env.Token, Protocol: uint32(base.PluginContract),
 		Language: "go", SdkLine: SDKLine, Declared: d.surface(),
+		// This library writes the shared ring, so a stream of it that tolerates loss may be carried there.
+		Transports: []pluginv1.Control_Activate_Transport{pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT},
 	})
 	if err != nil {
 		conn.Close()
@@ -338,7 +342,7 @@ func (u *Unit) receive() {
 			}
 			u.mu.Lock()
 			if former := u.active[a.Stream]; former != nil {
-				former.conn.Close()
+				former.close()
 			}
 			u.active[a.Stream] = flow
 			u.mu.Unlock()
@@ -348,7 +352,7 @@ func (u *Unit) receive() {
 			stream := e.GetControl().GetStop().Stream
 			u.mu.Lock()
 			if flow := u.active[stream]; flow != nil {
-				flow.conn.Close()
+				flow.close()
 			}
 			delete(u.active, stream)
 			u.mu.Unlock()
@@ -369,7 +373,7 @@ func (u *Unit) finish(end Ended) {
 		u.mu.Lock()
 		u.ended = true
 		for _, flow := range u.active {
-			flow.conn.Close()
+			flow.close()
 		}
 		u.active = map[string]*emitting{}
 		u.mu.Unlock()
@@ -470,7 +474,18 @@ func (u *Unit) Emit(stream string, payload []byte) error {
 	}
 	flow.mu.Lock()
 	defer flow.mu.Unlock()
+	if flow.closed {
+		return &base.Refusal{Code: "stream.inactive", Message: fmt.Sprintf("the stream %s has stopped", stream)}
+	}
 	flow.next++
+	if flow.ring != nil {
+		if err := flow.ring.Publish(uint64(time.Now().UnixNano()), payload); err != nil {
+			flow.next--
+			// Refused as an oversized datagram is on the framed transport: the transport took nothing.
+			return &base.Refusal{Code: "stream.inactive", Message: fmt.Sprintf("the transport of %s took nothing: %v", stream, err)}
+		}
+		return nil
+	}
 	var message []byte
 	if flow.framed {
 		message = make([]byte, 16, 16+len(payload))
@@ -491,11 +506,26 @@ func (u *Unit) Emit(stream string, payload []byte) error {
 }
 
 // emitting is one activated stream: the library's connection to its transport, and the next sequence.
+// On the shared ring the connection is held for the stream's life and the frames go into the ring.
 type emitting struct {
 	conn   net.Conn
 	framed bool
+	ring   *ring.Writer
 	mu     sync.Mutex
 	next   uint64
+	closed bool
+}
+
+// close lets the transport go, and the ring's mapping with it, once nothing is being emitted on it.
+func (e *emitting) close() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.closed = true
+	e.conn.Close()
+	if e.ring != nil {
+		e.ring.Close()
+		e.ring = nil
+	}
 }
 
 // connect reaches the transport an activation names, as the Core created it.
@@ -513,8 +543,43 @@ func connect(a *pluginv1.Control_Activate) (*emitting, error) {
 			return nil, fmt.Errorf("the transport of %s at %s cannot be reached: %w", a.Stream, a.Address, err)
 		}
 		return &emitting{conn: conn, framed: true}, nil
+	case pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT:
+		return connectRing(a)
 	}
 	return nil, fmt.Errorf("the transport %s of %s is not one this library reaches", a.Transport, a.Stream)
+}
+
+// connectRing reaches a stream's ring: it connects to the socket the activation names and takes the
+// descriptor the Core hands the first connection, on one byte.
+func connectRing(a *pluginv1.Control_Activate) (*emitting, error) {
+	conn, err := net.DialUnix("unixpacket", nil, &net.UnixAddr{Name: a.Address, Net: "unixpacket"})
+	if err != nil {
+		return nil, fmt.Errorf("the ring of %s at %s cannot be reached: %w", a.Stream, a.Address, err)
+	}
+	fail := func(format string, args ...any) (*emitting, error) {
+		conn.Close()
+		return nil, fmt.Errorf("the ring of %s: "+format, append([]any{a.Stream}, args...)...)
+	}
+	buf, oob := make([]byte, 1), make([]byte, unix.CmsgSpace(4))
+	_, oobn, _, _, err := conn.ReadMsgUnix(buf, oob)
+	if err != nil {
+		return fail("no descriptor was handed: %v", err)
+	}
+	messages, err := unix.ParseSocketControlMessage(oob[:oobn])
+	if err != nil || len(messages) != 1 {
+		return fail("no descriptor was handed")
+	}
+	fds, err := unix.ParseUnixRights(&messages[0])
+	if err != nil || len(fds) != 1 {
+		return fail("no descriptor was handed")
+	}
+	f := os.NewFile(uintptr(fds[0]), a.Stream)
+	defer f.Close()
+	w, err := ring.OpenWriter(f)
+	if err != nil {
+		return fail("%v", err)
+	}
+	return &emitting{conn: conn, ring: w}, nil
 }
 
 func ack(outcome pluginv1.Ack_Outcome, line string) *pluginv1.Envelope {
