@@ -42,7 +42,7 @@
 | **Label** | blocking |
 | **Precondition** | a unit started with the declaration of case 1, against a plugin channel that records what arrives |
 | **Action** | start it |
-| **Expected** | the request carries the plugin, the unit and the token from the environment, the protocol, the language `go` and this library's SDK line, and declared lists equal to the Manifest's — capabilities, streams, commands, queries and occurrences, all five; it carries no incarnation |
+| **Expected** | the request carries the plugin, the unit and the token from the environment, the protocol, the language `go` and this library's SDK line, declared lists equal to the Manifest's — capabilities, streams, commands, queries and occurrences, all five — and the shared object among the transports it offers; it carries no incarnation |
 
 ## yoke-sdk-go:the-plugin-library.04 — the unit's own socket is bound before it registers
 
@@ -225,3 +225,16 @@
 | **Precondition** | one stream activated on the ordered transport |
 | **Action** | the channel stops it; the author emits on it |
 | **Expected** | the library closes its connection, acknowledges the stop as done, and hands the author the stop; the emission is refused with `stream.inactive`, and nothing reaches the socket |
+
+## yoke-sdk-go:the-plugin-library.18 — activated on the shared ring, the library takes the descriptor handed and Emit publishes into the ring
+
+| Field | Value |
+| --- | --- |
+| **Cites** | arch/50-plugin-surface/07 §The shared ring · arch/50-plugin-surface/08 §The registration exchange |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a started unit; a ring of layout 1 behind a packet socket that hands its descriptor to the first connection, as the Core does |
+| **Action** | activate a stream on the shared object at that socket; emit three payloads; then one larger than a slot |
+| **Expected** | the activation is acknowledged done; frames 1, 2 and 3 are in their slots with the payloads emitted, a clock each, and the count published is 3; the payload larger than a slot is refused, naming the capacity, and nothing more is published |
