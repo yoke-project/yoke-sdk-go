@@ -78,6 +78,12 @@ release:
             exit 1
         fi
     done
+    # A family is released with the definitions published before it, so it requires them at a tag.
+    definitions="$(awk '$1 == "github.com/yoke-project/yoke/proto" { print $2 }' go.mod)"
+    if [[ "$definitions" =~ [-.][0-9]{14}-[0-9a-f]{12}$ ]]; then
+        echo "release: go.mod requires github.com/yoke-project/yoke/proto at $definitions, a pseudo-version: require the published definitions; nothing is published" >&2
+        exit 1
+    fi
     # The published release verb of `yoke`, publishing this module alone: resolved at its source,
     # since the proxy may still hold an older answer for a branch, with git's automatic collection off,
     # which would otherwise rewrite the shallow clone under go's second fetch.
