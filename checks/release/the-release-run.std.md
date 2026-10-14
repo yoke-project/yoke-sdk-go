@@ -56,3 +56,16 @@
 | **Precondition** | a copy of the checkout whose commit carries the release tag `v0.9.9`, which the SDK line does not name |
 | **Action** | run the `release` verb |
 | **Expected** | it exits non-zero with nothing on standard output, and its error stream names the line and the tag |
+
+## yoke-sdk-go:the-release-run.05 — while the definitions are required at a pseudo-version, the verb publishes nothing and refuses
+
+| Field | Value |
+| --- | --- |
+| **Cites** | prj_structure/95 §The release command · prj_structure/85 §Versions and what they promise |
+| **Level** | L1 |
+| **Method** | check |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a copy of the checkout carrying the release tag its SDK line names, whose `go.mod` requires `github.com/yoke-project/yoke/proto` at a pseudo-version |
+| **Action** | run the `release` verb |
+| **Expected** | it exits non-zero with nothing on standard output, and its error stream names the definitions and the version required |

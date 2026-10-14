@@ -48,3 +48,22 @@ check_a_tag_the_line_disagrees_with_publishes_nothing() {
   [[ -z "$out" ]] || { echo "the verb emitted: $out"; return 1; }
   grep -q "yoke-sdk-go " <<<"$said" && grep -q "v0.9.9" <<<"$said" || { echo "the verb did not name the line and the tag: $said"; return 1; }
 }
+
+# std: yoke-sdk-go:the-release-run.05
+check_a_pseudo_version_of_the_definitions_publishes_nothing() {
+  local copy out errs code said line pseudo
+  copy="$(mktemp -d)"
+  cp -a "$rr_root/." "$copy"
+  rm -rf "$copy/.results"
+  line="$(sed -n 's/^const SDKLine = "yoke-sdk-go \(.*\)"$/\1/p' "$copy/base/base.go")"
+  pseudo="v0.3.1-0.20261011164235-877de27e0f27"
+  sed -i -E "s|^(\s*github.com/yoke-project/yoke/proto) v[^ ]+|\1 $pseudo|" "$copy/go.mod"
+  git -C "$copy" -c user.name=check -c user.email=check@example.invalid commit -qam "a pseudo-version" >/dev/null
+  git -C "$copy" tag -f "v$line" >/dev/null
+  errs="$(mktemp)"
+  out="$(cd "$copy" && just release 2> "$errs")"; code=$?
+  said="$(cat "$errs")"; rm -f "$errs"; rm -rf "$copy"
+  (( code != 0 )) || { echo "the verb exited zero: $said"; return 1; }
+  [[ -z "$out" ]] || { echo "the verb emitted: $out"; return 1; }
+  grep -q "github.com/yoke-project/yoke/proto" <<<"$said" && grep -q "$pseudo" <<<"$said" || { echo "the verb did not name the definitions and the version: $said"; return 1; }
+}
