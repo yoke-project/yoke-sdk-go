@@ -6,10 +6,16 @@
 // on the one connection, each answered on its own; a refusal is the base's error, carrying its code and
 // its detail. Nothing is retried and nothing reconnects, and nothing is sent the author did not ask for:
 // a confirmation is the author's statement of what it has processed, so the library never makes one.
+//
+// A channel at a routable address is reached over TLS 1.3 against the roots the caller supplies, and
+// establishes its caller before anything else: the credential is the attachment's first frame, and the
+// session token its answer carries is the caller's to present to a later attachment.
 package iface
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -21,6 +27,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
@@ -196,10 +203,13 @@ func (q *queue) pop(ctx context.Context) (*interfacev1.CoreFrame, bool, error) {
 
 // Attachment is a client attached to a channel. Picture is what the channel was given when it attached,
 // Standing the subscription it holds from then on, and Version the contract's version the Core speaks.
+// Established is the answer to the credential an attachment presented — the account, and the session
+// token with its expiry — and nil where it presented none.
 type Attachment struct {
-	Picture  *interfacev1.Snapshot
-	Standing *Subscription
-	Version  int
+	Picture     *interfacev1.Snapshot
+	Standing    *Subscription
+	Version     int
+	Established *interfacev1.Authenticated
 
 	conn    *grpc.ClientConn
 	stream  interfacev1.Interface_AttachClient
@@ -213,18 +223,69 @@ type Attachment struct {
 	received chan struct{}
 }
 
-// dial reaches a channel: a path is a local socket, anything else an address on loopback.
-func dial(address string) (*grpc.ClientConn, error) {
+// Option is how an attachment reaches its channel, and what it presents there.
+type Option func(*options)
+
+type options struct {
+	tls        bool
+	roots      *x509.CertPool
+	serverName string
+	credential *interfacev1.Authenticate
+}
+
+// TLS reaches the channel over TLS 1.3 and nothing below it, verifying the Core's chain against roots and
+// no others; name is the name the certificate must carry, the address's host where it is empty. No
+// client certificate is offered: the caller is established by a credential, above the transport.
+func TLS(roots *x509.CertPool, name string) Option {
+	return func(o *options) { o.tls, o.roots, o.serverName = true, roots, name }
+}
+
+// Password presents an account and its secret, for the host to judge, as the attachment's first frame.
+func Password(account, secret string) Option {
+	return func(o *options) {
+		o.credential = &interfacev1.Authenticate{Credential: &interfacev1.Authenticate_Password_{
+			Password: &interfacev1.Authenticate_Password{Account: account, Secret: secret}}}
+	}
+}
+
+// Token presents a session token an earlier authentication on the same channel issued, as the
+// attachment's first frame.
+func Token(token string) Option {
+	return func(o *options) {
+		o.credential = &interfacev1.Authenticate{Credential: &interfacev1.Authenticate_Token{Token: token}}
+	}
+}
+
+// dial reaches a channel: a path is a local socket, anything else an address, over TLS where asked.
+func dial(address string, o options) (*grpc.ClientConn, error) {
 	if strings.HasPrefix(address, "/") {
+		if o.tls {
+			return nil, fmt.Errorf("%s is a local socket, and a local socket is not reached over TLS", address)
+		}
 		return base.Dial(address)
 	}
-	return grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if !o.tls {
+		return grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+	if o.roots == nil {
+		return nil, errors.New("TLS was asked with no roots, and the Core's chain is verified only against the roots its caller supplies")
+	}
+	return grpc.NewClient(address, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+		MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, RootCAs: o.roots, ServerName: o.serverName})))
 }
+
+// authenticating is the call identity of the credential an attachment presents first.
+const authenticating = "c-1"
 
 // Attach attaches to the channel at address, and waits for its opening until ctx ends. A Core that
 // speaks another version of the contract is refused before any operation, and the connection let go.
-func Attach(ctx context.Context, address string) (*Attachment, error) {
-	conn, err := dial(address)
+// A credential among opts is sent before anything else, and Attach waits for its answer too.
+func Attach(ctx context.Context, address string, opts ...Option) (*Attachment, error) {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	conn, err := dial(address, o)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +298,12 @@ func Attach(ctx context.Context, address string) (*Attachment, error) {
 	stream, err := interfacev1.NewInterfaceClient(conn).Attach(held)
 	if err != nil {
 		return fail(fromStatus(err))
+	}
+	if o.credential != nil {
+		r := &interfacev1.Request{Version: uint32(Contract), Operation: &interfacev1.Request_Authenticate{Authenticate: o.credential}}
+		if err := stream.Send(&interfacev1.ClientFrame{Call: authenticating, Carries: &interfacev1.ClientFrame_Request{Request: r}}); err != nil {
+			return fail(fromStatus(err))
+		}
 	}
 	first := make(chan *interfacev1.CoreFrame, 1)
 	failed := make(chan error, 1)
@@ -256,20 +323,33 @@ func Attach(ctx context.Context, address string) (*Attachment, error) {
 	case <-ctx.Done():
 		return fail(ctx.Err())
 	}
-	o := f.GetOpening()
-	if o == nil {
+	op := f.GetOpening()
+	if op == nil {
 		return fail(fmt.Errorf("the attachment opened with %v, and not an opening", f))
 	}
-	if int(o.GetVersion()) != Contract {
+	if int(op.GetVersion()) != Contract {
 		return fail(&base.Refusal{Code: "compat.unsupported", Message: fmt.Sprintf(
-			"this library speaks the interface contract's version %d, and the Core %d", Contract, o.GetVersion())})
+			"this library speaks the interface contract's version %d, and the Core %d", Contract, op.GetVersion())})
 	}
-	a := &Attachment{Picture: o.GetPicture(), Version: int(o.GetVersion()), conn: conn, stream: stream, end: end,
+	a := &Attachment{Picture: op.GetPicture(), Version: int(op.GetVersion()), conn: conn, stream: stream, end: end,
 		calls: map[string]*queue{}, received: make(chan struct{})}
-	if standing := o.GetSubscription(); standing != "" {
+	if standing := op.GetSubscription(); standing != "" {
 		a.Standing = &Subscription{ID: standing, a: a, frames: a.register(standing), standing: true}
 	}
+	if o.credential == nil {
+		go a.receive()
+		return a, nil
+	}
+	a.count = 1
+	q := a.register(authenticating)
 	go a.receive()
+	resp, err := a.first(ctx, authenticating, q)
+	a.forget(authenticating)
+	if err != nil {
+		a.Close()
+		return nil, err
+	}
+	a.Established = resp.GetAuthenticate()
 	return a, nil
 }
 
