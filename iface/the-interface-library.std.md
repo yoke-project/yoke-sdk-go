@@ -108,3 +108,16 @@
 | **Precondition** | a Core that records how each attachment's stream of requests ended |
 | **Action** | attach, make one call, and close the attachment |
 | **Expected** | the Core reads the end of the client's requests — the client closed — and not a connection that went away; `Close` returns once the attachment has ended |
+
+## yoke-sdk-go:the-interface-library.09 — a panel built on the interface library links nothing of the administrative contract
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/90.5 · arch/90-sdks/01 §Three contracts, three libraries |
+| **Level** | L1 |
+| **Method** | check |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | this module |
+| **Action** | list every package the interface library is built from |
+| **Expected** | none is the administrative contract's definitions or the administrative library — a program written with the interface library cannot reach the operations an interface must never issue, because they are not in it |
