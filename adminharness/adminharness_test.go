@@ -201,7 +201,7 @@ func TestTheSuiteIsRunAgainstIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(script), "./cmd/yoke-go-admin-harness") || !strings.Contains(string(script), `--harness "$bin/yoke-go-admin-harness"`) {
+	if !strings.Contains(string(script), "./cmd/yoke-go-admin-harness") || !strings.Contains(string(script), `run_suite "$bin/yoke-go-admin-harness"`) {
 		t.Error("ci/conformance.sh does not build the administrative harness and run the suite against it")
 	}
 }
