@@ -199,7 +199,7 @@ func TestTheSuiteIsRunAgainstTheInterfaceHarness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(script), "./cmd/yoke-go-interface-harness") || !strings.Contains(string(script), `--harness "$bin/yoke-go-interface-harness"`) {
+	if !strings.Contains(string(script), "./cmd/yoke-go-interface-harness") || !strings.Contains(string(script), `run_suite "$bin/yoke-go-interface-harness"`) {
 		t.Error("ci/conformance.sh does not build the interface harness and run the suite against it")
 	}
 }
