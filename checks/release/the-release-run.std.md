@@ -9,7 +9,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Cites** | prj_structure/95 §The release command · prj_structure/85 §The acts |
+| **Cites** | prj_structure/95 §The release command · prj_structure/85 §The acts · prj_structure/40 F2 |
 | **Level** | L1 |
 | **Method** | check |
 | **Not applicable in** | — |

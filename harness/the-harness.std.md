@@ -74,7 +74,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Cites** | specs/90.18 · arch/90-sdks/04 §What a harness is |
+| **Cites** | specs/90.18 · arch/90-sdks/04 §What a harness is · prj_structure/40 D4 |
 | **Level** | L1 |
 | **Method** | test |
 | **Not applicable in** | — |
