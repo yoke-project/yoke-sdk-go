@@ -9,7 +9,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Cites** | specs/70.19 · specs/70.21 · specs/90.6 · arch/70-interface-surface/01 §Where a channel is bound · arch/90-sdks/01 §One project, and what the base may hold |
+| **Cites** | specs/25.24 · specs/70.19 · specs/70.21 · specs/90.6 · arch/70-interface-surface/01 §Where a channel is bound · arch/90-sdks/01 §One project, and what the base may hold |
 | **Level** | L1 |
 | **Method** | test |
 | **Not applicable in** | — |
