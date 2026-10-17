@@ -61,7 +61,7 @@
 
 | Field | Value |
 | --- | --- |
-| **Cites** | prj_structure/95 §The release command · prj_structure/85 §Versions and what they promise |
+| **Cites** | prj_structure/95 §The release command · prj_structure/85 §What moves together, and what does not |
 | **Level** | L1 |
 | **Method** | check |
 | **Not applicable in** | — |
