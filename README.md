@@ -20,6 +20,7 @@ module of the `yoke` repository, at the version its `go.mod` names.
 | `admin/` | The library tooling and a person's session are written with |
 | `harness/`, `ifaceharness/`, `adminharness/` | Each library's harness for the conformance suite |
 | `cmd/` | The three harnesses as programs the suite launches |
+| `template/` | The starting tree of a Plugin project in Go, handed over with each release for `yoke-compose new plugin` |
 | `checks/`, `ci/` | This repository's own checks, and the scripts continuous integration runs |
 
 A test's description sits beside the test, as a `.std.md` file.

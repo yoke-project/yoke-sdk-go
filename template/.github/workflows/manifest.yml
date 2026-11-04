@@ -1,0 +1,20 @@
+# The Manifest kept in plugin/ is what the program prints: built natively and asked, at every change.
+name: manifest
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  manifest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: plugin/go.mod
+      - name: the Manifest kept is the Manifest printed
+        working-directory: plugin
+        run: |
+          GOFLAGS=-mod=mod go build -o "$RUNNER_TEMP/@YOKE_PROGRAM@" .
+          "$RUNNER_TEMP/@YOKE_PROGRAM@" --manifest | diff -u @YOKE_ID@.yaml -
