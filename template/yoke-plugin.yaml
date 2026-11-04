@@ -1,0 +1,9 @@
+plugin: 1
+id: @YOKE_ID@
+language: go
+program: @YOKE_PROGRAM@
+manifest: plugin/@YOKE_ID@.yaml
+build:
+  in: plugin/
+  run: CGO_ENABLED=0 GOOS=linux GOARCH="$YOKE_GOARCH" GOFLAGS=-mod=mod go build -trimpath -o "$YOKE_OUT/@YOKE_PROGRAM@" .
+architectures: [x86_64, aarch64]
