@@ -6,6 +6,10 @@ on:
   push:
     tags: ['v*']
 
+# The verb hands the Plugin template over to the tag's release.
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-24.04
@@ -21,6 +25,8 @@ jobs:
         with:
           go-version: '1.26'
       - run: just release > manifest-lines.jsonl
+        env:
+          GH_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@v7
         with:
           name: manifest-lines
