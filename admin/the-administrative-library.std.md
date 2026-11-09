@@ -29,7 +29,7 @@
 | **Label** | blocking |
 | **Precondition** | a Core that records every request it is sent, and answers each |
 | **Action** | call every operation the library offers, once through the operator projection and once through a shell connection |
-| **Expected** | the sixteen operations of the union were each sent once on each projection, every request stating the version 1, and the ones answered by a stream on `Watch` |
+| **Expected** | the seventeen operations of the union were each sent once on each projection, every request stating the version 1, and the ones answered by a stream on `Watch` |
 
 ## yoke-sdk-go:the-administrative-library.03 — a change answers what it replaced, when it takes effect, and what it did to each unit
 

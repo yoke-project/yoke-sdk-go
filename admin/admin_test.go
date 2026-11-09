@@ -239,6 +239,7 @@ func TestOneMethodPerOperationOnEitherProjection(t *testing.T) {
 			"unit_retention_set":   func() error { _, err := o.SetRetention(ctx, "u", admin.Retention{Age: time.Hour}); return err },
 			"unit_retention_clear": func() error { _, err := o.ClearRetention(ctx, "u"); return err },
 			"unit_ask":             func() error { _, err := o.Ask(ctx, "u", "status", []byte("q")); return err },
+			"unit_command":         func() error { _, err := o.Command(ctx, "u", "calibrate", []byte("q")); return err },
 			"read":                 func() error { _, err := o.Read(ctx, "unit", ""); return err },
 			"log_query":            func() error { _, err := o.QueryLog(ctx, &administrativev1.LogQuery{}); return err },
 			"log_follow": func() error {
@@ -265,8 +266,8 @@ func TestOneMethodPerOperationOnEitherProjection(t *testing.T) {
 	defer c.mu.Unlock()
 	for _, projection := range []string{"operator", "shell"} {
 		got := slices.Sorted(slices.Values(c.sent[projection]))
-		if len(got) != 16 || len(slices.Compact(got)) != 16 {
-			t.Errorf("the %s projection was sent %v, want the sixteen once each", projection, c.sent[projection])
+		if len(got) != 17 || len(slices.Compact(got)) != 17 {
+			t.Errorf("the %s projection was sent %v, want the seventeen once each", projection, c.sent[projection])
 		}
 	}
 	for _, v := range c.versions {

@@ -29,6 +29,10 @@ type core struct {
 }
 
 func (core) Call(_ context.Context, r *administrativev1.Request) (*administrativev1.Response, error) {
+	if c := r.GetUnitCommand(); c != nil {
+		return &administrativev1.Response{Answer: &administrativev1.Response_UnitCommand{UnitCommand: &administrativev1.Commanded{
+			Outcome: administrativev1.Commanded_OUTCOME_DONE, Line: c.GetType() + " " + string(c.GetPayload())}}}, nil
+	}
 	if r.GetUnitStop() != nil {
 		st, _ := status.New(codes.FailedPrecondition, "no unit nobody is declared").WithDetails(&administrativev1.Refusal{Code: "subject.unknown",
 			Message: "no unit nobody is declared", Detail: &administrativev1.Refusal_Subject{Subject: &administrativev1.Subject{Kind: "unit", Identity: "nobody"}}})
@@ -203,5 +207,15 @@ func TestTheSuiteIsRunAgainstIt(t *testing.T) {
 	}
 	if !strings.Contains(string(script), "./cmd/yoke-go-admin-harness") || !strings.Contains(string(script), `run_suite "$bin/yoke-go-admin-harness"`) {
 		t.Error("ci/conformance.sh does not build the administrative harness and run the suite against it")
+	}
+}
+
+// std: yoke-sdk-go:the-administrative-harness.06
+func TestACommandIsReportedAsTheUnitsAcknowledgement(t *testing.T) {
+	s, _, _ := started(t)
+	got := s.directive(t, "command", map[string]any{"unit": "acquire", "type": "calibrate", "payload": "now"})
+	value, _ := got["value"].(map[string]any)
+	if value["outcome"] != "OUTCOME_DONE" || value["line"] != "calibrate now" {
+		t.Errorf("the command was reported as %v", got)
 	}
 }
