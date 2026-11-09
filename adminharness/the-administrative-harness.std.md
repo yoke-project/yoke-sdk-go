@@ -69,3 +69,17 @@
 | **Precondition** | `ci/conformance.sh` |
 | **Action** | read it |
 | **Expected** | it builds the administrative harness and runs the suite against it, beside the plugin harness |
+
+## yoke-sdk-go:the-administrative-harness.06 — a command is reported as the unit's acknowledgement
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/60.63 · arch/90-sdks/04 §The control protocol |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a Core that answers a command with `done` and a line |
+| **Action** | direct `command` with a unit, a type and a payload |
+| **Expected** | the harness reports the outcome and the line |
+

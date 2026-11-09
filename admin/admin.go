@@ -209,6 +209,16 @@ func (o Operations) Ask(ctx context.Context, unit, typ string, question []byte) 
 	return resp.GetUnitAsk().GetAnswer(), nil
 }
 
+// Command gives a unit a command, its payload opaque, and returns the unit's first acknowledgement. An
+// acknowledgement that the command failed is an answer, and not an error.
+func (o Operations) Command(ctx context.Context, unit, typ string, payload []byte) (*administrativev1.Commanded, error) {
+	resp, err := o.do(ctx, &administrativev1.Request{Operation: &administrativev1.Request_UnitCommand{UnitCommand: &administrativev1.UnitCommand{Unit: unit, Type: typ, Payload: payload}}})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetUnitCommand(), nil
+}
+
 // Read reads a subject kind, or the one subject named.
 func (o Operations) Read(ctx context.Context, kind, identity string) ([]*administrativev1.Record, error) {
 	resp, err := o.do(ctx, &administrativev1.Request{Operation: &administrativev1.Request_Read{Read: &administrativev1.Read{Kind: kind, Identity: identity}}})

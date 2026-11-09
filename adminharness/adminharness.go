@@ -154,6 +154,12 @@ func act(ctx context.Context, o admin.Operations, verb string, args map[string]a
 			return refused(err)
 		}
 		return line{Value: map[string]any{"answer": string(answer)}}
+	case "command":
+		ack, err := o.Command(call, text(args, "unit"), text(args, "type"), []byte(text(args, "payload")))
+		if err != nil {
+			return refused(err)
+		}
+		return line{Value: plain(ack)}
 	case "read":
 		records, err := o.Read(call, text(args, "kind"), text(args, "identity"))
 		if err != nil {
