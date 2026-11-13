@@ -164,7 +164,7 @@ func (h *state) do(ctx context.Context, d line, getenv func(string) string, send
 		return line{Value: map[string]any{"outcome": outcome, "granted": scope(a.Granted), "withheld": scope(a.Withheld)}}
 	}
 	if h.unit == nil {
-		if d.Verb == "close" || d.Verb == "emit" || d.Verb == "report-health" || d.Verb == "report" || d.Verb == "ack" || d.Verb == "answer" {
+		if d.Verb == "close" || d.Verb == "emit" || d.Verb == "report-health" || d.Verb == "report" || d.Verb == "ack" || d.Verb == "answer" || d.Verb == "fail" {
 			return line{Value: map[string]any{"failed": true, "started": false}}
 		}
 		return line{Unrecognised: true}
@@ -194,6 +194,9 @@ func (h *state) do(ctx context.Context, d line, getenv func(string) string, send
 		q := h.questions[arg("question")]
 		h.mu.Unlock()
 		err = h.unit.Answer(q, []byte(arg("payload")))
+	case "fail":
+		// A question or a command the Core sent, failed with a code and a message, correlated to it.
+		err = h.unit.Fail(arg("about"), arg("code"), arg("message"))
 	default:
 		return line{Unrecognised: true}
 	}
