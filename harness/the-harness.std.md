@@ -135,3 +135,16 @@
 | **Precondition** | a harness whose unit was started against a plugin channel, and a packet socket listening as the Core's would |
 | **Action** | the channel activates the stream that tolerates nothing on that socket; then the suite issues `emit` on it |
 | **Expected** | an observation `activated` naming the stream and the transport `ordered`; then an answer with no refusal, and one packet on the socket |
+
+## yoke-sdk-go:the-harness.11 — a large stream is declared, and emit-sized emits a payload of the size asked
+
+| Field | Value |
+| --- | --- |
+| **Cites** | arch/90-sdks/03 §The harness |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | the harness started, a stream activated |
+| **Action** | `describe`; then `emit-sized` of 300000 bytes on the activated stream |
+| **Expected** | the Manifest declares `conformance.large`, tolerating loss, with `max_frame: 4194304`, and a capability governing it; the emission carries 300000 bytes, byte i being i mod 251 |

@@ -25,14 +25,16 @@ import (
 // governed by a capability.
 func Declaration() plugin.Declaration {
 	return plugin.Declaration{
-		ID:          "com.yoke.conformance.go",
-		Streams:     []plugin.Stream{{ID: "conformance.data"}, {ID: "conformance.frames", ToleratesLoss: true}},
+		ID: "com.yoke.conformance.go",
+		Streams: []plugin.Stream{{ID: "conformance.data"}, {ID: "conformance.frames", ToleratesLoss: true},
+			{ID: "conformance.large", ToleratesLoss: true, MaxFrame: 4 << 20}},
 		Commands:    []string{"calibrate"},
 		Queries:     []string{"status"},
 		Occurrences: []string{"conformance.drift"},
 		Capabilities: []plugin.Capability{
 			{Name: "stream.data.publish", Governs: plugin.Object{Stream: "conformance.data"}},
 			{Name: "stream.frames.publish", Governs: plugin.Object{Stream: "conformance.frames"}},
+			{Name: "stream.large.publish", Governs: plugin.Object{Stream: "conformance.large"}},
 			{Name: "command.calibrate.accept", Governs: plugin.Object{Command: "calibrate"}},
 			{Name: "query.status.answer", Governs: plugin.Object{Query: "status"}},
 			{Name: "event.drift.report", Governs: plugin.Object{Occurrence: "conformance.drift"}},
@@ -164,7 +166,7 @@ func (h *state) do(ctx context.Context, d line, getenv func(string) string, send
 		return line{Value: map[string]any{"outcome": outcome, "granted": scope(a.Granted), "withheld": scope(a.Withheld)}}
 	}
 	if h.unit == nil {
-		if d.Verb == "close" || d.Verb == "emit" || d.Verb == "report-health" || d.Verb == "report" || d.Verb == "ack" || d.Verb == "answer" || d.Verb == "fail" {
+		if d.Verb == "close" || d.Verb == "emit" || d.Verb == "emit-sized" || d.Verb == "report-health" || d.Verb == "report" || d.Verb == "ack" || d.Verb == "answer" || d.Verb == "fail" {
 			return line{Value: map[string]any{"failed": true, "started": false}}
 		}
 		return line{Unrecognised: true}
@@ -175,6 +177,14 @@ func (h *state) do(ctx context.Context, d line, getenv func(string) string, send
 		err = h.unit.Close()
 	case "emit":
 		err = h.unit.Emit(arg("stream"), []byte(arg("payload")))
+	case "emit-sized":
+		// A payload of the size asked, byte i being i mod 251, as the suite checks it.
+		size, _ := d.Args["bytes"].(float64)
+		payload := make([]byte, int(size))
+		for i := range payload {
+			payload[i] = byte(i % 251)
+		}
+		err = h.unit.Emit(arg("stream"), payload)
 	case "report-health":
 		grade, _ := d.Args["grade"].(float64)
 		err = h.unit.Health(uint8(grade), arg("line"))

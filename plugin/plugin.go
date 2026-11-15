@@ -49,6 +49,8 @@ type Stream struct {
 	ID               string
 	ToleratesLoss    bool
 	ToleratesReorder bool
+	// MaxFrame is the largest payload the stream emits, in bytes; zero is the Core's default, 1 MiB.
+	MaxFrame int64
 }
 
 // Capability is what an operator may grant, governing exactly one object.
@@ -68,6 +70,7 @@ func (d Declaration) Manifest() []byte {
 		ID               string `yaml:"id"`
 		ToleratesLoss    bool   `yaml:"tolerates_loss,omitempty"`
 		ToleratesReorder bool   `yaml:"tolerates_reorder,omitempty"`
+		MaxFrame         int64  `yaml:"max_frame,omitempty"`
 	}
 	type governs struct {
 		Stream     string `yaml:"stream,omitempty"`
@@ -100,7 +103,7 @@ func (d Declaration) Manifest() []byte {
 	}{Manifest: 1, ID: d.ID, Protocol: base.PluginContract, Needs: d.Needs,
 		Commands: ids(d.Commands), Queries: ids(d.Queries), Occurrences: ids(d.Occurrences)}
 	for _, s := range d.Streams {
-		m.Streams = append(m.Streams, entry{ID: s.ID, ToleratesLoss: s.ToleratesLoss, ToleratesReorder: s.ToleratesReorder})
+		m.Streams = append(m.Streams, entry{ID: s.ID, ToleratesLoss: s.ToleratesLoss, ToleratesReorder: s.ToleratesReorder, MaxFrame: s.MaxFrame})
 	}
 	for _, c := range d.Capabilities {
 		m.Capabilities = append(m.Capabilities, capability{Name: c.Name, Governs: governs(c.Governs)})
@@ -221,7 +224,8 @@ func StartWith(ctx context.Context, d Declaration, getenv func(string) string) (
 		Plugin: env.Plugin, Unit: env.Unit, Token: env.Token, Protocol: uint32(base.PluginContract),
 		Language: "go", SdkLine: SDKLine, Declared: d.surface(),
 		// This library writes the shared ring, so a stream of it that tolerates loss may be carried there.
-		Transports: []pluginv1.Control_Activate_Transport{pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT},
+		Transports: []pluginv1.Control_Activate_Transport{pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT,
+			pluginv1.Control_Activate_TRANSPORT_ORDERED_STREAM, pluginv1.Control_Activate_TRANSPORT_FRAMED_STREAM},
 	})
 	if err != nil {
 		conn.Close()
@@ -462,8 +466,8 @@ func (u *Unit) Health(grade uint8, line string) error {
 }
 
 // Emit sends data on a stream, on the transport its activation named: one data envelope per packet on
-// the ordered transport, one frame per datagram on the framed one, numbered from 1 within the
-// activation. Only the Core creates a stream's transport, so a stream it has not activated has nowhere to
+// the ordered transport, one frame per datagram on the framed one, each after its length on either
+// carried on a stream socket, numbered from 1 within the activation. Only the Core creates a stream's transport, so a stream it has not activated has nowhere to
 // be written, and the library refuses rather than make one.
 func (u *Unit) Emit(stream string, payload []byte) error {
 	u.mu.Lock()
@@ -499,6 +503,12 @@ func (u *Unit) Emit(stream string, payload []byte) error {
 			return err
 		}
 	}
+	if flow.lengthed {
+		// On a stream socket each message follows its length, and is written whole.
+		prefixed := make([]byte, 4, 4+len(message))
+		binary.LittleEndian.PutUint32(prefixed, uint32(len(message)))
+		message = append(prefixed, message...)
+	}
 	if _, err := flow.conn.Write(message); err != nil {
 		return &base.Refusal{Code: "stream.inactive", Message: fmt.Sprintf("the transport of %s took nothing: %v", stream, err)}
 	}
@@ -510,10 +520,12 @@ func (u *Unit) Emit(stream string, payload []byte) error {
 type emitting struct {
 	conn   net.Conn
 	framed bool
-	ring   *ring.Writer
-	mu     sync.Mutex
-	next   uint64
-	closed bool
+	// lengthed is a stream socket: each message is written after its length.
+	lengthed bool
+	ring     *ring.Writer
+	mu       sync.Mutex
+	next     uint64
+	closed   bool
 }
 
 // close lets the transport go, and the ring's mapping with it, once nothing is being emitted on it.
@@ -545,6 +557,12 @@ func connect(a *pluginv1.Control_Activate) (*emitting, error) {
 		return &emitting{conn: conn, framed: true}, nil
 	case pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT:
 		return connectRing(a)
+	case pluginv1.Control_Activate_TRANSPORT_ORDERED_STREAM, pluginv1.Control_Activate_TRANSPORT_FRAMED_STREAM:
+		conn, err := net.Dial("unix", a.Address)
+		if err != nil {
+			return nil, fmt.Errorf("the transport of %s at %s cannot be reached: %w", a.Stream, a.Address, err)
+		}
+		return &emitting{conn: conn, framed: a.Transport == pluginv1.Control_Activate_TRANSPORT_FRAMED_STREAM, lengthed: true}, nil
 	}
 	return nil, fmt.Errorf("the transport %s of %s is not one this library reaches", a.Transport, a.Stream)
 }

@@ -42,7 +42,7 @@
 | **Label** | blocking |
 | **Precondition** | a unit started with the declaration of case 1, against a plugin channel that records what arrives |
 | **Action** | start it |
-| **Expected** | the request carries the plugin, the unit and the token from the environment, the protocol, the language `go` and this library's SDK line, declared lists equal to the Manifest's — capabilities, streams, commands, queries and occurrences, all five — and the shared object among the transports it offers; it carries no incarnation |
+| **Expected** | the request carries the plugin, the unit and the token from the environment, the protocol, the language `go` and this library's SDK line, declared lists equal to the Manifest's — capabilities, streams, commands, queries and occurrences, all five — and the shared object and the two stream transports among those it offers; it carries no incarnation |
 
 ## yoke-sdk-go:the-plugin-library.04 — the unit's own socket is bound before it registers
 
@@ -238,3 +238,16 @@
 | **Precondition** | a started unit; a ring of layout 1 behind a packet socket that hands its descriptor to the first connection, as the Core does |
 | **Action** | activate a stream on the shared object at that socket; emit three payloads; then one larger than a slot |
 | **Expected** | the activation is acknowledged done; frames 1, 2 and 3 are in their slots with the payloads emitted, a clock each, and the count published is 3; the payload larger than a slot is refused, naming the capacity, and nothing more is published |
+
+## yoke-sdk-go:the-plugin-library.19 — on a stream socket, Emit writes each message after its length; the registration offers it, and the Manifest declares the largest frame
+
+| Field | Value |
+| --- | --- |
+| **Cites** | arch/50-plugin-surface/07 §What the two tolerances select · arch/50-plugin-surface/08 §Where the data goes · arch/50-plugin-surface/02 §The four declared lists |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a unit started from a declaration whose stream `station.raw` declares `MaxFrame` 4 MiB |
+| **Action** | the registration is read; the Manifest generated; the Core activates a stream on `TRANSPORT_ORDERED_STREAM` and one on `TRANSPORT_FRAMED_STREAM`, and Emit sends 600 KiB on each |
+| **Expected** | the registration offers the shared object and both stream transports; the Manifest says `max_frame: 4194304` for `station.raw` and nothing for a stream that declares none; each stream socket reads a `u32` little-endian length and then, whole, the envelope or the frame of sequence 1 |
