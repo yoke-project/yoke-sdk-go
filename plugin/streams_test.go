@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -207,5 +209,81 @@ func TestAStopClosesTheTransportAndEmitIsRefusedAfter(t *testing.T) {
 	var refusal *base.Refusal
 	if err := u.Emit("station.spectra", []byte("late")); !errors.As(err, &refusal) || refusal.Code != "stream.inactive" || !strings.Contains(refusal.Message, "station.spectra") {
 		t.Errorf("emitting after the stop gave %v", err)
+	}
+}
+
+// std: yoke-sdk-go:the-plugin-library.19
+func TestOnAStreamSocketEmitWritesEachMessageAfterItsLength(t *testing.T) {
+	d := plugin.Declaration{ID: "com.yoke.station.acquire", Streams: []plugin.Stream{{ID: "station.raw", ToleratesLoss: true, MaxFrame: 4 << 20}, {ID: "station.plain"}}}
+	if m := string(d.Manifest()); !strings.Contains(m, "max_frame: 4194304") || strings.Count(m, "max_frame") != 1 {
+		t.Errorf("the Manifest is\n%s", m)
+	}
+	c := &channel{}
+	u := start(t, c)
+	until(t, "the Session opening", func() bool { return len(c.got()) > 0 })
+	offered := c.requests[0].Transports
+	for _, want := range []pluginv1.Control_Activate_Transport{pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT, pluginv1.Control_Activate_TRANSPORT_ORDERED_STREAM, pluginv1.Control_Activate_TRANSPORT_FRAMED_STREAM} {
+		if !slices.Contains(offered, want) {
+			t.Errorf("the registration offers %v, not %v", offered, want)
+		}
+	}
+	dir := t.TempDir()
+	listen := func(name string) (string, <-chan []byte) {
+		path := filepath.Join(dir, name)
+		l, err := net.Listen("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { l.Close() })
+		got := make(chan []byte, 4)
+		go func() {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			for {
+				var length [4]byte
+				if _, err := io.ReadFull(conn, length[:]); err != nil {
+					return
+				}
+				body := make([]byte, binary.LittleEndian.Uint32(length[:]))
+				if _, err := io.ReadFull(conn, body); err != nil {
+					return
+				}
+				got <- body
+			}
+		}()
+		return path, got
+	}
+	ordered, orderedGot := listen("ordered.sock")
+	framed, framedGot := listen("framed.sock")
+	c.send(activate("c-1", "station.spectra", pluginv1.Control_Activate_TRANSPORT_ORDERED_STREAM, ordered))
+	c.send(activate("c-2", "station.preview", pluginv1.Control_Activate_TRANSPORT_FRAMED_STREAM, framed))
+	acked(t, c, "c-1")
+	acked(t, c, "c-2")
+	big := bytes.Repeat([]byte{5}, 600<<10)
+	if err := u.Emit("station.spectra", big); err != nil {
+		t.Fatalf("emitting on the ordered stream socket: %v", err)
+	}
+	if err := u.Emit("station.preview", big); err != nil {
+		t.Fatalf("emitting on the framed stream socket: %v", err)
+	}
+	select {
+	case raw := <-orderedGot:
+		e := &pluginv1.Envelope{}
+		if err := proto.Unmarshal(raw, e); err != nil || e.GetData().GetSequence() != 1 || len(e.GetData().GetPayload()) != len(big) {
+			t.Errorf("the ordered message is %d bytes, %v", len(raw), err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the ordered stream socket read nothing")
+	}
+	select {
+	case raw := <-framedGot:
+		if len(raw) != 16+len(big) || binary.LittleEndian.Uint64(raw[0:8]) != 1 {
+			t.Errorf("the framed message is %d bytes, sequence %d", len(raw), binary.LittleEndian.Uint64(raw[0:8]))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the framed stream socket read nothing")
 	}
 }

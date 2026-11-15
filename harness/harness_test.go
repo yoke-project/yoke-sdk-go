@@ -3,9 +3,11 @@ package harness_test
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"go/parser"
 	"go/token"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -338,6 +340,64 @@ func TestAnActivationIsObservedAndAnEmissionGoesOntoIt(t *testing.T) {
 	}
 	select {
 	case <-packets:
+	case <-time.After(3 * time.Second):
+		t.Fatal("nothing arrived on the transport")
+	}
+}
+
+// std: yoke-sdk-go:the-harness.11
+func TestALargeStreamIsDeclaredAndEmitSizedEmitsThatSize(t *testing.T) {
+	m := string(harness.Declaration().Manifest())
+	if !strings.Contains(m, "id: conformance.large") || !strings.Contains(m, "max_frame: 4194304") || !strings.Contains(m, "stream: conformance.large") {
+		t.Fatalf("the Manifest is\n%s", m)
+	}
+	dir, _ := os.MkdirTemp("", "yt")
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	path := filepath.Join(dir, "large.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	got := make(chan []byte, 1)
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var length [4]byte
+		if _, err := io.ReadFull(conn, length[:]); err != nil {
+			return
+		}
+		body := make([]byte, binary.LittleEndian.Uint32(length[:]))
+		io.ReadFull(conn, body)
+		got <- body
+	}()
+	c := &channel{}
+	s, _, _ := started(t, c)
+	s.directive(t, "start", nil)
+	<-c.opened
+	c.mu.Lock()
+	c.send(&pluginv1.Envelope{MessageId: "c-1", SessionId: "sid-1", Payload: &pluginv1.Envelope_Control{Control: &pluginv1.Control{
+		Kind: &pluginv1.Control_Activate_{Activate: &pluginv1.Control_Activate{Stream: "conformance.large",
+			Transport: pluginv1.Control_Activate_TRANSPORT_FRAMED_STREAM, Address: path}}}}})
+	c.mu.Unlock()
+	s.read(t)
+	if _, res := s.directive(t, "emit-sized", map[string]any{"stream": "conformance.large", "bytes": 300000}); res["refusal"] != nil {
+		t.Fatalf("the emission was refused: %v", res)
+	}
+	select {
+	case body := <-got:
+		payload := body[16:]
+		if len(payload) != 300000 {
+			t.Fatalf("the payload is %d bytes", len(payload))
+		}
+		for i, b := range payload {
+			if b != byte(i%251) {
+				t.Fatalf("byte %d is %d", i, b)
+			}
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("nothing arrived on the transport")
 	}

@@ -207,8 +207,8 @@ func TestTheRegistrationClaimsWhatTheManifestDeclares(t *testing.T) {
 		req.Language != "go" || !strings.HasPrefix(req.SdkLine, "yoke-sdk-go ") {
 		t.Errorf("the request is %v", req)
 	}
-	if len(req.Transports) != 1 || req.Transports[0] != pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT {
-		t.Errorf("the transports offered are %v, want the shared object", req.Transports)
+	if len(req.Transports) != 3 || req.Transports[0] != pluginv1.Control_Activate_TRANSPORT_SHARED_OBJECT {
+		t.Errorf("the transports offered are %v, want the shared object and the two stream sockets", req.Transports)
 	}
 	var m struct {
 		Streams      []struct{ ID string }
