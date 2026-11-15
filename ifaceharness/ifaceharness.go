@@ -268,7 +268,23 @@ func (h *harness) act(verb string, args map[string]any) line {
 		}
 		return line{Value: plain(ack)}
 	case "stream-subscribe":
-		d, err := a.SubscribeStream(call, text(args, "unit"), text(args, "stream"))
+		// The suite may name what the library is to read; otherwise it names everything it reads.
+		reading := a.SubscribeStream
+		if named, ok := args["reads"].([]any); ok {
+			var reads []iface.Reads
+			for _, r := range named {
+				switch r {
+				case "stream_socket":
+					reads = append(reads, iface.ReadsStreamSocket)
+				case "shared_object":
+					reads = append(reads, iface.ReadsSharedObject)
+				}
+			}
+			reading = func(ctx context.Context, unit, stream string) (*iface.Delivery, error) {
+				return a.SubscribeStreamReading(ctx, unit, stream, reads...)
+			}
+		}
+		d, err := reading(call, text(args, "unit"), text(args, "stream"))
 		if err != nil {
 			return refused(err)
 		}
@@ -282,7 +298,7 @@ func (h *harness) act(verb string, args map[string]any) line {
 				h.observe("frame", map[string]any{"delivery": d.ID, "sequence": f.Sequence, "sent_at": f.SentAt, "payload": string(f.Payload)})
 			}
 		}()
-		return line{Value: map[string]any{"delivery": d.ID, "flowing": d.Flowing}}
+		return line{Value: map[string]any{"delivery": d.ID, "flowing": d.Flowing, "arrives": d.Arrives}}
 	case "reclaim":
 		got, err := a.Reclaim(call)
 		if err != nil {

@@ -19,8 +19,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/yoke-project/yoke-sdk-go/internal/ring"
+	"golang.org/x/sys/unix"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -617,18 +620,50 @@ const packet = header + 1<<20
 type Delivery struct {
 	ID      string
 	Flowing bool
+	// Arrives is where the Core said the delivery arrives: "socket", "stream_socket", "shared" or
+	// "connection".
+	Arrives string
 
 	a      *Attachment
 	socket net.Conn
 	frames *queue
 	buf    []byte
+	// On a stream socket, each frame after its length.
+	lengthed bool
+	// On the shared ring: the lifeline, what it said, and the ring of the activation being read.
+	lifeline *net.UnixConn
+	said     chan lifelineMessage
+	ring     *ring.Reader
 }
 
-// SubscribeStream asks for a copy of a unit's stream, and opens it where the answer says it arrives: a
-// per-subscriber socket the Core listens on, or the attachment's own connection.
+// Reads is what this library can read a delivery from, beyond the per-subscriber packet socket.
+type Reads = interfacev1.UnitStream_Reads
+
+// The deliveries this library reads.
+const (
+	ReadsStreamSocket = interfacev1.UnitStream_READS_STREAM_SOCKET
+	ReadsSharedObject = interfacev1.UnitStream_READS_SHARED_OBJECT
+)
+
+// lifelineMessage is one message of a shared delivery's lifeline: a ring, a stop, or its end.
+type lifelineMessage struct {
+	ring *os.File
+	stop bool
+	end  bool
+}
+
+// SubscribeStream asks for a copy of a unit's stream, naming every delivery this library reads, and opens
+// it where the answer says it arrives: a per-subscriber socket the Core listens on, a stream socket, the
+// stream's ring itself, or the attachment's own connection.
 func (a *Attachment) SubscribeStream(ctx context.Context, unit, stream string) (*Delivery, error) {
+	return a.SubscribeStreamReading(ctx, unit, stream, ReadsStreamSocket, ReadsSharedObject)
+}
+
+// SubscribeStreamReading is SubscribeStream naming only the deliveries given; with none, the packet socket
+// every library reads.
+func (a *Attachment) SubscribeStreamReading(ctx context.Context, unit, stream string, reads ...Reads) (*Delivery, error) {
 	resp, err := a.call(ctx, &interfacev1.Request{Operation: &interfacev1.Request_StreamSubscribe{StreamSubscribe: &interfacev1.UnitStream{
-		Unit: unit, Stream: stream}}})
+		Unit: unit, Stream: stream, Reads: reads}}})
 	if err != nil {
 		return nil, err
 	}
@@ -641,17 +676,148 @@ func (a *Attachment) SubscribeStream(ctx context.Context, unit, stream string) (
 		if err != nil {
 			return nil, fmt.Errorf("the delivery's socket %s cannot be reached: %w", arrives.Socket, err)
 		}
-		out.socket, out.buf = conn, make([]byte, packet)
+		out.socket, out.buf, out.Arrives = conn, make([]byte, packet), "socket"
+	case *interfacev1.Delivering_StreamSocket:
+		var dialer net.Dialer
+		conn, err := dialer.DialContext(ctx, "unix", arrives.StreamSocket)
+		if err != nil {
+			return nil, fmt.Errorf("the delivery's socket %s cannot be reached: %w", arrives.StreamSocket, err)
+		}
+		out.socket, out.lengthed, out.Arrives = conn, true, "stream_socket"
+	case *interfacev1.Delivering_Shared:
+		conn, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: arrives.Shared, Net: "unix"})
+		if err != nil {
+			return nil, fmt.Errorf("the delivery's lifeline %s cannot be reached: %w", arrives.Shared, err)
+		}
+		out.lifeline, out.said, out.Arrives = conn, make(chan lifelineMessage, 4), "shared"
+		go listen(conn, out.said)
 	case *interfacev1.Delivering_Connection:
-		out.frames = a.register(out.ID)
+		out.frames, out.Arrives = a.register(out.ID), "connection"
 	default:
 		return nil, fmt.Errorf("the delivery %s arrives where this projection cannot read it: %v", out.ID, d.GetArrives())
 	}
 	return out, nil
 }
 
-// Next is the next frame, in order; io.EOF once the delivery ended, ErrEnded once the attachment did.
+// listen reads a shared delivery's lifeline: each message after its length, one byte carrying a ring's
+// descriptor or nothing for a stop; its closing is the delivery's end.
+func listen(conn *net.UnixConn, said chan<- lifelineMessage) {
+	defer close(said)
+	for {
+		head, oob := make([]byte, 4), make([]byte, unix.CmsgSpace(4))
+		n, oobn, _, _, err := conn.ReadMsgUnix(head, oob)
+		if err != nil || n == 0 {
+			said <- lifelineMessage{end: true}
+			return
+		}
+		for n < 4 {
+			m, err := conn.Read(head[n:])
+			if err != nil {
+				said <- lifelineMessage{end: true}
+				return
+			}
+			n += m
+		}
+		length := binary.LittleEndian.Uint32(head)
+		if length == 0 {
+			said <- lifelineMessage{stop: true}
+			continue
+		}
+		body := make([]byte, length)
+		m, more, _, _, err := conn.ReadMsgUnix(body, oob[oobn:])
+		if err != nil || m == 0 {
+			said <- lifelineMessage{end: true}
+			return
+		}
+		oobn += more
+		var f *os.File
+		if messages, err := unix.ParseSocketControlMessage(oob[:oobn]); err == nil {
+			for _, msg := range messages {
+				if fds, err := unix.ParseUnixRights(&msg); err == nil && len(fds) == 1 {
+					f = os.NewFile(uintptr(fds[0]), "ring")
+				}
+			}
+		}
+		if f != nil {
+			said <- lifelineMessage{ring: f}
+		}
+	}
+}
+
+// nextOnTheRing reads the ring of the activation being read, taking each ring and each stop the lifeline
+// brings; io.EOF once the lifeline closed.
+func (d *Delivery) nextOnTheRing() (Frame, error) {
+	for {
+		select {
+		case m, open := <-d.said:
+			if !open || m.end {
+				if d.ring != nil {
+					d.ring.Close()
+					d.ring = nil
+				}
+				return Frame{}, io.EOF
+			}
+			if d.ring != nil {
+				d.ring.Close()
+				d.ring = nil
+			}
+			if m.ring != nil {
+				r, err := ring.OpenReader(m.ring)
+				m.ring.Close()
+				if err != nil {
+					return Frame{}, err
+				}
+				d.ring = r
+			}
+			continue
+		default:
+		}
+		if d.ring == nil {
+			m, open := <-d.said
+			if !open || m.end {
+				return Frame{}, io.EOF
+			}
+			if m.ring != nil {
+				r, err := ring.OpenReader(m.ring)
+				m.ring.Close()
+				if err != nil {
+					return Frame{}, err
+				}
+				d.ring = r
+			}
+			continue
+		}
+		f, _, err := d.ring.Next(100 * time.Millisecond)
+		if errors.Is(err, ring.ErrNoFrame) {
+			continue
+		}
+		if err != nil {
+			return Frame{}, err
+		}
+		return Frame{Sequence: f.Sequence, SentAt: f.Clock, Payload: f.Payload}, nil
+	}
+}
+
+// Next is the next frame, in order; io.EOF once the delivery ended, ErrEnded once the attachment did. On
+// the shared ring, a frame the reader fell behind for is a gap in the sequence.
 func (d *Delivery) Next() (Frame, error) {
+	if d.lifeline != nil {
+		return d.nextOnTheRing()
+	}
+	if d.socket != nil && d.lengthed {
+		var head [4]byte
+		if _, err := io.ReadFull(d.socket, head[:]); err != nil {
+			return Frame{}, io.EOF
+		}
+		body := make([]byte, binary.LittleEndian.Uint32(head[:]))
+		if _, err := io.ReadFull(d.socket, body); err != nil {
+			return Frame{}, io.EOF
+		}
+		if len(body) < header {
+			return Frame{}, fmt.Errorf("a frame of %d bytes is shorter than its header", len(body))
+		}
+		return Frame{Sequence: binary.LittleEndian.Uint64(body[0:8]), SentAt: binary.LittleEndian.Uint64(body[8:16]), Payload: body[header:]}, nil
+	}
 	if d.socket != nil {
 		n, err := d.socket.Read(d.buf)
 		if err != nil || n == 0 {
@@ -683,6 +849,9 @@ func (d *Delivery) Release(ctx context.Context) error {
 		Delivery: d.ID}}})
 	if d.socket != nil {
 		d.socket.Close()
+	}
+	if d.lifeline != nil {
+		d.lifeline.Close()
 	}
 	if d.frames != nil {
 		d.a.forget(d.ID)
