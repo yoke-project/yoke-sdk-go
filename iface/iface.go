@@ -745,56 +745,60 @@ func listen(conn *net.UnixConn, said chan<- lifelineMessage) {
 }
 
 // nextOnTheRing reads the ring of the activation being read, taking each ring and each stop the lifeline
-// brings; io.EOF once the lifeline closed.
+// brings; io.EOF once the lifeline closed. It waits on the ring's word with no bound, and on the lifeline
+// when the word is woken with nothing published — the Core of 0.16.0 does so after every stop and every end
+// the lifeline carries, the message already written — so neither is read at an interval.
 func (d *Delivery) nextOnTheRing() (Frame, error) {
+	// take applies one message of the lifeline, and says whether the delivery ended.
+	take := func(m lifelineMessage, open bool) (bool, error) {
+		if d.ring != nil {
+			d.ring.Close()
+			d.ring = nil
+		}
+		if !open || m.end {
+			return true, nil
+		}
+		if m.ring != nil {
+			r, err := ring.OpenReader(m.ring)
+			m.ring.Close()
+			if err != nil {
+				return false, err
+			}
+			d.ring = r
+		}
+		return false, nil
+	}
 	for {
-		select {
-		case m, open := <-d.said:
-			if !open || m.end {
-				if d.ring != nil {
-					d.ring.Close()
-					d.ring = nil
-				}
-				return Frame{}, io.EOF
-			}
-			if d.ring != nil {
-				d.ring.Close()
-				d.ring = nil
-			}
-			if m.ring != nil {
-				r, err := ring.OpenReader(m.ring)
-				m.ring.Close()
-				if err != nil {
-					return Frame{}, err
-				}
-				d.ring = r
-			}
-			continue
-		default:
-		}
+		var m lifelineMessage
+		open, got := false, false
 		if d.ring == nil {
-			m, open := <-d.said
-			if !open || m.end {
-				return Frame{}, io.EOF
+			m, open = <-d.said
+			got = true
+		} else {
+			select {
+			case m, open = <-d.said:
+				got = true
+			default:
 			}
-			if m.ring != nil {
-				r, err := ring.OpenReader(m.ring)
-				m.ring.Close()
-				if err != nil {
-					return Frame{}, err
-				}
-				d.ring = r
+		}
+		if !got {
+			f, _, err := d.ring.NextWoken()
+			if err == nil {
+				return Frame{Sequence: f.Sequence, SentAt: f.Clock, Payload: f.Payload}, nil
 			}
-			continue
+			if !errors.Is(err, ring.ErrWoken) {
+				return Frame{}, err
+			}
+			// The word moved with nothing published: the lifeline's message is on its way.
+			m, open = <-d.said
 		}
-		f, _, err := d.ring.Next(100 * time.Millisecond)
-		if errors.Is(err, ring.ErrNoFrame) {
-			continue
-		}
+		ended, err := take(m, open)
 		if err != nil {
 			return Frame{}, err
 		}
-		return Frame{Sequence: f.Sequence, SentAt: f.Clock, Payload: f.Payload}, nil
+		if ended {
+			return Frame{}, io.EOF
+		}
 	}
 }
 

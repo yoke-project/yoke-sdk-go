@@ -181,5 +181,29 @@ func (r *Reader) Next(interval time.Duration) (Frame, uint64, error) {
 	}
 }
 
+// ErrWoken is what NextWoken answers when the ring's word was woken with nothing published: the Core does
+// so after every stop and every end a delivery's lifeline carries, so a message is on the lifeline.
+var ErrWoken = errors.New("the ring was woken with nothing published")
+
+// NextWoken is Next with no bound: it waits on the ring's word until a frame is published, or until the
+// word is woken with nothing published, which it answers with ErrWoken.
+func (r *Reader) NextWoken() (Frame, uint64, error) {
+	wakeAt := (*uint32)(unsafe.Pointer(&r.mem[offWake]))
+	publishedAt := (*uint64)(unsafe.Pointer(&r.mem[offPublished]))
+	waited := false
+	for {
+		wake := atomic.LoadUint32(wakeAt)
+		if atomic.LoadUint64(publishedAt) >= r.next {
+			return r.Next(0)
+		}
+		if waited {
+			return Frame{}, 0, ErrWoken
+		}
+		// Shared, not private: the producer and the Core that wake it are other processes.
+		unix.Syscall6(unix.SYS_FUTEX, uintptr(unsafe.Pointer(wakeAt)), futexWaitOp, uintptr(wake), 0, 0, 0)
+		waited = true
+	}
+}
+
 // Close lets the reader's mapping go.
 func (r *Reader) Close() error { return unix.Munmap(r.mem) }
