@@ -251,3 +251,16 @@
 | **Precondition** | a unit started from a declaration whose stream `station.raw` declares `MaxFrame` 4 MiB |
 | **Action** | the registration is read; the Manifest generated; the Core activates a stream on `TRANSPORT_ORDERED_STREAM` and one on `TRANSPORT_FRAMED_STREAM`, and Emit sends 600 KiB on each |
 | **Expected** | the registration offers the shared object and both stream transports; the Manifest says `max_frame: 4194304` for `station.raw` and nothing for a stream that declares none; each stream socket reads a `u32` little-endian length and then, whole, the envelope or the frame of sequence 1 |
+
+## yoke-sdk-go:the-plugin-library.20 — a unit is named after its executable, not after the descriptor it was started through
+
+| Field | Value |
+| --- | --- |
+| **Cites** | arch/35-units/04 §The plan |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a process the kernel names `3`, as it names a unit the Core started through `/proc/self/fd/3` |
+| **Action** | start a unit |
+| **Expected** | the process's name is its executable's, from its first argument, cut to 15 bytes |
