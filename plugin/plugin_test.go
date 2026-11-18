@@ -528,3 +528,23 @@ func TestEveryFamilyAUnitOriginatesHasAnAct(t *testing.T) {
 		return failed && len(outcomes) == 2 && outcomes[0] == pluginv1.Ack_OUTCOME_ACCEPTED && outcomes[1] == pluginv1.Ack_OUTCOME_DONE
 	})
 }
+
+// std: yoke-sdk-go:the-plugin-library.20
+func TestAUnitIsNamedAfterItsExecutable(t *testing.T) {
+	// As the kernel names a unit the Core started through the descriptor.
+	if err := os.WriteFile("/proc/self/comm", []byte("3"), 0); err != nil {
+		t.Fatal(err)
+	}
+	start(t, &channel{})
+	want := filepath.Base(os.Args[0])
+	if len(want) > 15 {
+		want = want[:15]
+	}
+	got, err := os.ReadFile("/proc/self/comm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSuffix(string(got), "\n") != want {
+		t.Errorf("the process is named %q, and its executable %q", got, want)
+	}
+}
