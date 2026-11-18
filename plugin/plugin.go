@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -199,6 +200,22 @@ type Unit struct {
 	health    *pluginv1.Health
 }
 
+// nameTheProcess names the process after its executable. The Core starts a unit through the descriptor it
+// took the executable's digest through, and the kernel names a process after the path executed —
+// /proc/self/fd/3, so 3 in every list of processes and in the journal. The name is the executable's, from
+// the first argument the Core passes, cut to the kernel's 15 bytes; where it cannot be written, nothing is
+// said.
+func nameTheProcess() {
+	if len(os.Args) == 0 {
+		return
+	}
+	name := filepath.Base(os.Args[0])
+	if len(name) > 15 {
+		name = name[:15]
+	}
+	_ = os.WriteFile("/proc/self/comm", []byte(name), 0)
+}
+
 // Start starts a unit from its environment.
 func Start(ctx context.Context, d Declaration) (*Unit, error) { return StartWith(ctx, d, os.Getenv) }
 
@@ -209,6 +226,7 @@ func StartWith(ctx context.Context, d Declaration, getenv func(string) string) (
 	if err != nil {
 		return nil, err
 	}
+	nameTheProcess()
 	// Bind before registering: registered and unreachable is the one order that is wrong.
 	os.Remove(env.Bind)
 	listener, err := net.Listen("unix", env.Bind)
