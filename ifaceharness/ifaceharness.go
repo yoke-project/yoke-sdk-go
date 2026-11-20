@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -94,6 +95,7 @@ type harness struct {
 	observe func(string, map[string]any)
 	a       *iface.Attachment
 	extra   []*iface.Attachment
+	follows int
 }
 
 // Serve runs the harness until it is told to finish, and returns its exit status.
@@ -202,7 +204,7 @@ func (h *harness) act(verb string, args map[string]any) line {
 	}
 	a := h.a
 	switch verb {
-	case "authenticate", "read", "subscribe", "confirm", "command", "query", "stream-start", "stream-stop", "stream-subscribe", "reclaim":
+	case "authenticate", "read", "subscribe", "confirm", "command", "query", "stream-start", "stream-stop", "stream-subscribe", "stream-follow", "reclaim":
 		if a == nil {
 			return line{Value: map[string]any{"failed": true, "attached": false}}
 		}
@@ -250,7 +252,7 @@ func (h *harness) act(verb string, args map[string]any) line {
 		}
 		return line{Value: plain(ack)}
 	case "query":
-		answer, err := a.Ask(call, text(args, "unit"), text(args, "type"), []byte(text(args, "payload")))
+		answer, err := a.AskCaused(call, text(args, "cause"), text(args, "unit"), text(args, "type"), []byte(text(args, "payload")))
 		if err != nil {
 			return refused(err)
 		}
@@ -299,6 +301,25 @@ func (h *harness) act(verb string, args map[string]any) line {
 			}
 		}()
 		return line{Value: map[string]any{"delivery": d.ID, "flowing": d.Flowing, "arrives": d.Arrives}}
+	case "stream-follow":
+		// A stream followed across its unit's restarts: each frame names the follow and the delivery it came on.
+		f, err := a.Follow(call, text(args, "unit"), text(args, "stream"))
+		if err != nil {
+			return refused(err)
+		}
+		h.follows++
+		id := fmt.Sprintf("follow-%d", h.follows)
+		go func() {
+			for {
+				frame, err := f.Next()
+				if err != nil {
+					h.observe("follow-ended", map[string]any{"follow": id})
+					return
+				}
+				h.observe("frame", map[string]any{"follow": id, "delivery": f.Delivery(), "sequence": frame.Sequence, "sent_at": frame.SentAt, "payload": string(frame.Payload)})
+			}
+		}()
+		return line{Value: map[string]any{"follow": id}}
 	case "reclaim":
 		got, err := a.Reclaim(call)
 		if err != nil {

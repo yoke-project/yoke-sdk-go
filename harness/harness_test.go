@@ -93,7 +93,7 @@ func restricted(req *pluginv1.RegisterRequest) *pluginv1.RegisterResponse {
 
 // started starts a harness against a plugin channel and a suite's socket, and returns the suite's side
 // once the hello has been read, the hello, and the channel. done closes when the harness exits.
-func started(t *testing.T, c *channel) (*suite, map[string]any, <-chan int) {
+func started(t *testing.T, c *channel, extra ...string) (*suite, map[string]any, <-chan int) {
 	t.Helper()
 	dir, _ := os.MkdirTemp("", "yh")
 	t.Cleanup(func() { os.RemoveAll(dir) })
@@ -111,6 +111,9 @@ func started(t *testing.T, c *channel) (*suite, map[string]any, <-chan int) {
 	t.Cleanup(func() { control.Close() })
 	env := map[string]string{"CONFORMANCE_SOCKET": filepath.Join(dir, "control.sock"), "YOKE_PLUGIN": harness.Declaration().ID,
 		"YOKE_UNIT": "harness", "YOKE_SOCKET": filepath.Join(dir, "plugin.sock"), "YOKE_BIND": filepath.Join(dir, "bind.sock"), "YOKE_TOKEN": "t"}
+	for i := 0; i+1 < len(extra); i += 2 {
+		env[extra[i]] = extra[i+1]
+	}
 	done := make(chan int, 1)
 	go func() { done <- harness.Serve(context.Background(), func(k string) string { return env[k] }) }()
 	conn, err := control.Accept()

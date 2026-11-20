@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -40,6 +41,18 @@ func Declaration() plugin.Declaration {
 			{Name: "event.drift.report", Governs: plugin.Object{Occurrence: "conformance.drift"}},
 		},
 	}
+}
+
+// DeclarationFor is the harness's declaration for the suite running it: a feature the suite names is
+// declared, and one it does not name is left out, because a Core of an earlier release refuses a Manifest
+// key it does not know. With `rewrites`, the harness needs the secret `token` and rewrites it.
+func DeclarationFor(getenv func(string) string) plugin.Declaration {
+	d := Declaration()
+	if slices.Contains(strings.Split(getenv("CONFORMANCE_FEATURES"), ","), "rewrites") {
+		d.Needs = append(d.Needs, "secret:token")
+		d.Rewrites = []string{"token"}
+	}
+	return d
 }
 
 type line struct {
@@ -145,9 +158,9 @@ func (h *state) do(ctx context.Context, d line, getenv func(string) string, send
 	arg := func(name string) string { s, _ := d.Args[name].(string); return s }
 	switch d.Verb {
 	case "describe":
-		return line{Value: map[string]any{"manifest": string(Declaration().Manifest())}}
+		return line{Value: map[string]any{"manifest": string(DeclarationFor(getenv).Manifest())}}
 	case "start":
-		u, err := plugin.StartWith(ctx, Declaration(), getenv)
+		u, err := plugin.StartWith(ctx, DeclarationFor(getenv), getenv)
 		if err != nil {
 			return refusal(err)
 		}
@@ -166,7 +179,7 @@ func (h *state) do(ctx context.Context, d line, getenv func(string) string, send
 		return line{Value: map[string]any{"outcome": outcome, "granted": scope(a.Granted), "withheld": scope(a.Withheld)}}
 	}
 	if h.unit == nil {
-		if d.Verb == "close" || d.Verb == "emit" || d.Verb == "emit-sized" || d.Verb == "report-health" || d.Verb == "report" || d.Verb == "ack" || d.Verb == "answer" || d.Verb == "fail" {
+		if d.Verb == "close" || d.Verb == "emit" || d.Verb == "emit-sized" || d.Verb == "report-health" || d.Verb == "report" || d.Verb == "ack" || d.Verb == "answer" || d.Verb == "fail" || d.Verb == "rewrite" {
 			return line{Value: map[string]any{"failed": true, "started": false}}
 		}
 		return line{Unrecognised: true}
@@ -207,6 +220,12 @@ func (h *state) do(ctx context.Context, d line, getenv func(string) string, send
 	case "fail":
 		// A question or a command the Core sent, failed with a code and a message, correlated to it.
 		err = h.unit.Fail(arg("about"), arg("code"), arg("message"))
+	case "rewrite":
+		// The secret the suite placed, at the path the Core resolved for it.
+		if arg("secret") != "token" || getenv("CONFORMANCE_SECRET") == "" {
+			return line{Value: map[string]any{"failed": true}}
+		}
+		err = plugin.Rewrite(getenv("CONFORMANCE_SECRET"), []byte(arg("value")))
 	default:
 		return line{Unrecognised: true}
 	}
@@ -229,7 +248,8 @@ func (h *state) observe(u *plugin.Unit, send func(line)) {
 			h.mu.Lock()
 			h.questions[e.ID] = e
 			h.mu.Unlock()
-			send(line{Type: "observation", Kind: "question", Fields: map[string]any{"id": e.ID, "type": e.Type, "payload": string(e.Payload)}})
+			send(line{Type: "observation", Kind: "question", Fields: map[string]any{"id": e.ID, "type": e.Type, "payload": string(e.Payload),
+				"asker": e.Asker, "deadline": e.Deadline.UnixMilli(), "chain": e.Chain}})
 		case plugin.Activated:
 			send(line{Type: "observation", Kind: "activated", Fields: map[string]any{"stream": e.Stream, "transport": strings.ToLower(strings.TrimPrefix(e.Transport, "TRANSPORT_"))}})
 		case plugin.Stopped:
