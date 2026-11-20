@@ -148,3 +148,29 @@
 | **Precondition** | the harness started, a stream activated |
 | **Action** | `describe`; then `emit-sized` of 300000 bytes on the activated stream |
 | **Expected** | the Manifest declares `conformance.large`, tolerating loss, with `max_frame: 4194304`, and a capability governing it; the emission carries 300000 bytes, byte i being i mod 251 |
+
+## yoke-sdk-go:the-harness.12 — a question is observed with who asked, its deadline and its chain
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/50.107 · arch/90-sdks/04 §The control protocol |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a harness whose unit was started against a plugin channel |
+| **Action** | the channel sends a question asked by `operator:ada`, with a deadline and a chain |
+| **Expected** | the harness observes a `question` carrying `asker`, `deadline` in milliseconds and `chain`, as sent |
+
+## yoke-sdk-go:the-harness.13 — the secret it rewrites is declared only where the suite names the feature, and `rewrite` replaces it
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/42.30 · specs/80.56 · arch/90-sdks/04 §The control protocol |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a suite naming `max_frame`, and one naming `max_frame,rewrites` with `CONFORMANCE_SECRET` the path of a secret holding `first` |
+| **Action** | the declaration read for each; then, against the second, `start` and `rewrite` of `token` with `second` |
+| **Expected** | the first declares no `rewrites`; the second needs `secret:token` and rewrites `token`; `rewrite` succeeds and the file holds `second` |

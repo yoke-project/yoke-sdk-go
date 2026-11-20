@@ -516,8 +516,16 @@ func (a *Attachment) Command(ctx context.Context, unit, typ string, payload []by
 
 // Ask asks a unit a question, its payload opaque, and returns the answer's.
 func (a *Attachment) Ask(ctx context.Context, unit, typ string, payload []byte) ([]byte, error) {
+	return a.AskCaused(ctx, "", unit, typ, payload)
+}
+
+// AskCaused asks a unit a question on a need's channel while answering another: cause is the identifier
+// of the question the asking unit was delivered and is answering, and the Core gives this question that
+// one's chain and its deadline less a margin. Only a need's channel takes a cause; any other refuses it
+// `use.cause.unknown`.
+func (a *Attachment) AskCaused(ctx context.Context, cause, unit, typ string, payload []byte) ([]byte, error) {
 	resp, err := a.call(ctx, &interfacev1.Request{Operation: &interfacev1.Request_Query{Query: &interfacev1.Question{
-		Unit: unit, Type: typ, Payload: payload}}})
+		Unit: unit, Type: typ, Payload: payload, Cause: cause}}})
 	return resp.GetQuery().GetPayload(), err
 }
 
@@ -860,5 +868,128 @@ func (d *Delivery) Release(ctx context.Context) error {
 	if d.frames != nil {
 		d.a.forget(d.ID)
 	}
+	return err
+}
+
+// Follow is a unit's stream followed: started and subscribed, and started and subscribed again each time its
+// delivery ends because the unit's Session did — a restart of the unit, on a need's channel or any other.
+// Frames come in order within a delivery; the next delivery's numbering is its own.
+type Follow struct {
+	a            *Attachment
+	unit, stream string
+	reads        []Reads
+	ctx          context.Context
+	cancel       context.CancelFunc
+	current      *Delivery
+	retry        time.Duration
+	once         sync.Once
+	mu           sync.Mutex
+}
+
+// FollowRetry is how long a follow waits between two attempts while the unit is not there to subscribe to.
+const FollowRetry = 250 * time.Millisecond
+
+// returning is whether a refusal says the unit is not there yet — not running, or running with no Session
+// — which a follow waits out.
+func returning(err error) bool {
+	var r *base.Refusal
+	return errors.As(err, &r) && (r.Code == "unit.not_running" || r.Code == "unit.no_session")
+}
+
+// Follow follows a unit's stream, naming every delivery this library reads, or those given. The first
+// subscription is made before it returns; a refusal of it other than the unit's absence is returned.
+func (a *Attachment) Follow(ctx context.Context, unit, stream string, reads ...Reads) (*Follow, error) {
+	if len(reads) == 0 {
+		reads = []Reads{ReadsStreamSocket, ReadsSharedObject}
+	}
+	inner, cancel := context.WithCancel(context.Background())
+	f := &Follow{a: a, unit: unit, stream: stream, reads: reads, ctx: inner, cancel: cancel, retry: FollowRetry}
+	if err := f.subscribe(ctx); err != nil {
+		cancel()
+		return nil, err
+	}
+	return f, nil
+}
+
+// subscribe starts the stream, where it may, and subscribes to it, until it succeeds, the unit's absence
+// aside.
+func (f *Follow) subscribe(ctx context.Context) error {
+	for {
+		_, err := f.a.StartStream(ctx, f.unit, f.stream)
+		if err == nil || !returning(err) {
+			// A start refused for any other reason leaves a stream that may flow anyway: the subscription says.
+			d, err := f.a.SubscribeStreamReading(ctx, f.unit, f.stream, f.reads...)
+			if err == nil {
+				f.mu.Lock()
+				f.current = d
+				f.mu.Unlock()
+				return nil
+			}
+			if !returning(err) {
+				return err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-f.ctx.Done():
+			return ErrEnded
+		case <-time.After(f.retry):
+		}
+	}
+}
+
+// Delivery is the identifier of the delivery the last frame came on.
+func (f *Follow) Delivery() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.current == nil {
+		return ""
+	}
+	return f.current.ID
+}
+
+// Next is the next frame of the stream, across the unit's restarts; ErrEnded once the follow was closed or
+// the attachment ended.
+func (f *Follow) Next() (Frame, error) {
+	for {
+		f.mu.Lock()
+		d := f.current
+		f.mu.Unlock()
+		if d == nil {
+			return Frame{}, ErrEnded
+		}
+		frame, err := d.Next()
+		if err == nil {
+			return frame, nil
+		}
+		if f.ctx.Err() != nil || errors.Is(err, ErrEnded) {
+			return Frame{}, ErrEnded
+		}
+		if !errors.Is(err, io.EOF) && !returning(err) {
+			return Frame{}, err
+		}
+		// The delivery ended with the unit's Session: what was opened for it is let go, and the stream
+		// followed again.
+		d.Release(f.ctx)
+		if err := f.subscribe(f.ctx); err != nil {
+			return Frame{}, ErrEnded
+		}
+	}
+}
+
+// Close ends the follow and releases its delivery.
+func (f *Follow) Close(ctx context.Context) error {
+	var err error
+	f.once.Do(func() {
+		f.cancel()
+		f.mu.Lock()
+		d := f.current
+		f.current = nil
+		f.mu.Unlock()
+		if d != nil {
+			err = d.Release(ctx)
+		}
+	})
 	return err
 }

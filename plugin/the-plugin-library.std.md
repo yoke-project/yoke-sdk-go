@@ -264,3 +264,42 @@
 | **Precondition** | a process the kernel names `3`, as it names a unit the Core started through `/proc/self/fd/3` |
 | **Action** | start a unit |
 | **Expected** | the process's name is its executable's, from its first argument, cut to 15 bytes |
+
+## yoke-sdk-go:the-plugin-library.21 — a declaration says what it uses of a unit and the secrets it rewrites, and one that uses nothing says neither
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/42.27 · specs/42.30 · specs/42.31 · arch/50-plugin-surface/10 §What a Plugin declares |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a declaration needing `unit:accounts` and `secret:refresh`, using the question `oauth.token` and the stream `oauth.status` of `accounts`, rewriting `refresh`, each use governed by a capability |
+| **Action** | the Manifest generated; and the Manifest of a declaration that uses nothing |
+| **Expected** | `uses` maps `accounts` to its questions and its streams; `rewrites` names `refresh`; each capability governs a `use` naming the need and the question or the stream; the other Manifest has no `uses`, no `rewrites` and no `use` |
+
+## yoke-sdk-go:the-plugin-library.22 — a question surfaces who asked, its deadline and its chain, and its answer carries none of them
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/50.107 · specs/50.110 · arch/50-plugin-surface/10 §The three fields of a question |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a started unit, its Session open |
+| **Action** | the channel sends a question asked by `unit:archive`, with a deadline 30 s away and a chain; the unit answers it |
+| **Expected** | the question surfaced carries its identifier, the asker, the deadline to the millisecond and the chain; the answer is correlated to it |
+
+## yoke-sdk-go:the-plugin-library.23 — a secret the unit rewrites is replaced in place, and a failed rewrite leaves the old value whole
+
+| Field | Value |
+| --- | --- |
+| **Cites** | specs/80.56 · arch/80-security/06 §A secret the unit rewrites |
+| **Level** | L1 |
+| **Method** | test |
+| **Not applicable in** | — |
+| **Label** | blocking |
+| **Precondition** | a secret's directory holding `value`, mode `0600` |
+| **Action** | `Rewrite` of it with a new value; then, the directory made unwritable, `Rewrite` again |
+| **Expected** | the file holds the new value, mode `0600`, and the directory holds nothing else; the second rewrite fails and the file still holds the first new value |

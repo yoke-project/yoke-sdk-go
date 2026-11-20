@@ -45,6 +45,9 @@ func (core) Attach(stream interfacev1.Interface_AttachServer) error {
 			ref = &interfacev1.Refusal{Code: "channel.suspended", Message: "the channel is suspended",
 				Detail: &interfacev1.Refusal_Suspension{Suspension: &interfacev1.Suspension{Grade: "read-only", By: "bench"}}}
 		}
+		if cause := f.GetRequest().GetQuery().GetCause(); cause != "" {
+			ref = &interfacev1.Refusal{Code: "use.cause.unknown", Message: "no such question", Detail: &interfacev1.Refusal_Item{Item: cause}}
+		}
 		stream.Send(&interfacev1.CoreFrame{Call: f.GetCall(), Carries: &interfacev1.CoreFrame_Refusal{Refusal: ref}})
 	}
 }
@@ -201,5 +204,19 @@ func TestTheSuiteIsRunAgainstTheInterfaceHarness(t *testing.T) {
 	}
 	if !strings.Contains(string(script), "./cmd/yoke-go-interface-harness") || !strings.Contains(string(script), `run_suite "$bin/yoke-go-interface-harness"`) {
 		t.Error("ci/conformance.sh does not build the interface harness and run the suite against it")
+	}
+}
+
+// std: yoke-sdk-go:the-interface-harness.06
+func TestAQuestionCarriesTheCauseNamedAndAFollowIsAVerb(t *testing.T) {
+	s, _, _ := started(t)
+	s.directive(t, "attach", map[string]any{"channel": "panel"})
+	res, _ := s.directive(t, "query", map[string]any{"unit": "source", "type": "status", "cause": "q-none"})
+	if value, _ := res["value"].(map[string]any); res["refusal"] != "use.cause.unknown" || value["item"] != "q-none" {
+		t.Errorf("a query naming a cause was reported %v", res)
+	}
+	res, _ = s.directive(t, "stream-follow", map[string]any{"unit": "nobody", "stream": "station.raw"})
+	if res["unrecognised"] == true || res["refusal"] != "subject.unknown" {
+		t.Errorf("a follow of a unit nobody declared was reported %v", res)
 	}
 }
