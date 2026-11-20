@@ -43,6 +43,16 @@ type Declaration struct {
 	Queries      []string
 	Occurrences  []string
 	Capabilities []Capability
+	// Uses is, for each `unit` need, what the Plugin uses of the unit bound to it: questions it asks and
+	// streams it follows, in that unit's vocabulary. There are no commands: a unit never instructs another.
+	Uses map[string]Use
+	// Rewrites names the `secret` needs whose value the unit replaces itself, with Rewrite.
+	Rewrites []string
+}
+
+// Use is what a Plugin uses of one unit need.
+type Use struct {
+	Questions, Streams []string
 }
 
 // Stream is a stream the Plugin may publish, and what its data tolerates.
@@ -63,6 +73,13 @@ type Capability struct {
 // Object is the one thing a capability governs: set exactly one field.
 type Object struct {
 	Stream, Command, Query, Occurrence, Surface string
+	// Use is a question or a stream of a `unit` need, named in Uses.
+	Use *UseObject
+}
+
+// UseObject is a question or a stream a Plugin uses through a `unit` need: set Query or Stream.
+type UseObject struct {
+	Need, Query, Stream string
 }
 
 // Manifest is the document the declaration generates.
@@ -73,12 +90,22 @@ func (d Declaration) Manifest() []byte {
 		ToleratesReorder bool   `yaml:"tolerates_reorder,omitempty"`
 		MaxFrame         int64  `yaml:"max_frame,omitempty"`
 	}
+	type use struct {
+		Need   string `yaml:"need"`
+		Query  string `yaml:"query,omitempty"`
+		Stream string `yaml:"stream,omitempty"`
+	}
 	type governs struct {
 		Stream     string `yaml:"stream,omitempty"`
 		Command    string `yaml:"command,omitempty"`
 		Query      string `yaml:"query,omitempty"`
 		Occurrence string `yaml:"occurrence,omitempty"`
 		Surface    string `yaml:"surface,omitempty"`
+		Use        *use   `yaml:"use,omitempty"`
+	}
+	type uses struct {
+		Questions []string `yaml:"questions,omitempty"`
+		Streams   []string `yaml:"streams,omitempty"`
 	}
 	type capability struct {
 		Name    string  `yaml:"name"`
@@ -92,22 +119,34 @@ func (d Declaration) Manifest() []byte {
 		return out
 	}
 	m := struct {
-		Manifest     int          `yaml:"manifest"`
-		ID           string       `yaml:"id"`
-		Protocol     int          `yaml:"protocol"`
-		Needs        []string     `yaml:"needs,omitempty"`
-		Streams      []entry      `yaml:"streams,omitempty"`
-		Commands     []entry      `yaml:"commands,omitempty"`
-		Queries      []entry      `yaml:"queries,omitempty"`
-		Occurrences  []entry      `yaml:"occurrences,omitempty"`
-		Capabilities []capability `yaml:"capabilities,omitempty"`
-	}{Manifest: 1, ID: d.ID, Protocol: base.PluginContract, Needs: d.Needs,
+		Manifest     int             `yaml:"manifest"`
+		ID           string          `yaml:"id"`
+		Protocol     int             `yaml:"protocol"`
+		Needs        []string        `yaml:"needs,omitempty"`
+		Streams      []entry         `yaml:"streams,omitempty"`
+		Commands     []entry         `yaml:"commands,omitempty"`
+		Queries      []entry         `yaml:"queries,omitempty"`
+		Occurrences  []entry         `yaml:"occurrences,omitempty"`
+		Uses         map[string]uses `yaml:"uses,omitempty"`
+		Rewrites     []string        `yaml:"rewrites,omitempty"`
+		Capabilities []capability    `yaml:"capabilities,omitempty"`
+	}{Rewrites: d.Rewrites, Manifest: 1, ID: d.ID, Protocol: base.PluginContract, Needs: d.Needs,
 		Commands: ids(d.Commands), Queries: ids(d.Queries), Occurrences: ids(d.Occurrences)}
 	for _, s := range d.Streams {
 		m.Streams = append(m.Streams, entry{ID: s.ID, ToleratesLoss: s.ToleratesLoss, ToleratesReorder: s.ToleratesReorder, MaxFrame: s.MaxFrame})
 	}
+	for need, u := range d.Uses {
+		if m.Uses == nil {
+			m.Uses = map[string]uses{}
+		}
+		m.Uses[need] = uses{Questions: u.Questions, Streams: u.Streams}
+	}
 	for _, c := range d.Capabilities {
-		m.Capabilities = append(m.Capabilities, capability{Name: c.Name, Governs: governs(c.Governs)})
+		g := governs{Stream: c.Governs.Stream, Command: c.Governs.Command, Query: c.Governs.Query, Occurrence: c.Governs.Occurrence, Surface: c.Governs.Surface}
+		if u := c.Governs.Use; u != nil {
+			g.Use = &use{Need: u.Need, Query: u.Query, Stream: u.Stream}
+		}
+		m.Capabilities = append(m.Capabilities, capability{Name: c.Name, Governs: g})
 	}
 	b, _ := yaml.Marshal(m)
 	return b
@@ -150,11 +189,18 @@ type (
 		Type    string
 		Payload []byte
 	}
-	// Question is a query the Core asked, to be answered.
+	// Question is a query the Core asked, to be answered. The Core states who asked, the instant the
+	// asker stops waiting and the chain the question belongs to; the unit states none of them. A unit
+	// asking on a need's channel while it answers names ID as the cause.
 	Question struct {
 		ID      string
 		Type    string
 		Payload []byte
+		// Asker is `unit:<unit>`, `channel:<name>` or `operator:<person>`.
+		Asker    string
+		Deadline time.Time
+		// Chain is the chain's identity, 32 lower-case hex digits.
+		Chain string
 	}
 	// Activated says a stream may now be emitted on, and where.
 	Activated struct {
@@ -382,7 +428,8 @@ func (u *Unit) receive() {
 			u.events <- Stopped{Stream: stream}
 		case e.GetQuery().GetQuestion() != nil:
 			q := e.GetQuery().GetQuestion()
-			u.events <- Question{ID: e.MessageId, Type: q.Type, Payload: q.Payload}
+			u.events <- Question{ID: e.MessageId, Type: q.Type, Payload: q.Payload, Asker: q.GetAsker(),
+				Deadline: time.UnixMilli(int64(q.GetDeadline())), Chain: q.GetChain()}
 		case e.GetError() != nil:
 			u.events <- Refused{Correlation: e.CorrelationId, Err: base.RefusalOf(e.GetError())}
 		}
@@ -625,4 +672,39 @@ func ack(outcome pluginv1.Ack_Outcome, line string) *pluginv1.Envelope {
 // Fail says what went wrong with a message the Core sent, correlated to it: a code and a message.
 func (u *Unit) Fail(about, code, message string) error {
 	return u.answer(about, &pluginv1.Envelope{Payload: &pluginv1.Envelope_Error{Error: &pluginv1.Error{Code: code, Message: message}}})
+}
+
+// Rewrite replaces the value of a secret the Plugin declares in Rewrites, at path — the value `${bind.<name>}`
+// resolved to — without a restart: the new value is written beside it as `value.new`, flushed, and renamed
+// over it, so a reader meets the old value or the new one and never a part of either. The Core never opens
+// it; the unit reads it again when it next needs it.
+func Rewrite(path string, value []byte) error {
+	next := filepath.Join(filepath.Dir(path), "value.new")
+	f, err := os.OpenFile(next, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(value); err != nil {
+		f.Close()
+		os.Remove(next)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(next)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(next)
+		return err
+	}
+	if err := os.Rename(next, path); err != nil {
+		os.Remove(next)
+		return err
+	}
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		dir.Sync()
+		dir.Close()
+	}
+	return nil
 }
