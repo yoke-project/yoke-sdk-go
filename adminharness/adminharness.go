@@ -198,7 +198,7 @@ func act(ctx context.Context, o admin.Operations, verb string, args map[string]a
 				case d.GetEvent() != nil:
 					e := d.GetEvent()
 					observe("event", map[string]any{"seq": e.GetSeq(), "type": e.GetType(), "subject_kind": e.GetSubject().GetKind(),
-						"subject": e.GetSubject().GetIdentity(), "actor": e.GetActor().GetClass(), "person": e.GetActor().GetPerson(), "severity": e.GetSeverity()})
+						"subject": e.GetSubject().GetIdentity(), "actor": e.GetActor().GetClass(), "person": e.GetActor().GetPerson(), "severity": e.GetSeverity(), "line": e.GetLine()})
 				}
 			}
 		}()

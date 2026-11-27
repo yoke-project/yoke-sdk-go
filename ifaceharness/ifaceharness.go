@@ -85,7 +85,7 @@ func number(args map[string]any, key string) uint64 {
 // event is an event as the suite reads it.
 func event(e *interfacev1.Event) map[string]any {
 	return map[string]any{"seq": e.GetSeq(), "type": e.GetType(), "subject_kind": e.GetSubject().GetKind(),
-		"subject": e.GetSubject().GetIdentity(), "severity": e.GetSeverity()}
+		"subject": e.GetSubject().GetIdentity(), "severity": e.GetSeverity(), "line": e.GetLine()}
 }
 
 // harness is what the harness holds between directives: its attachment, once one is made.
